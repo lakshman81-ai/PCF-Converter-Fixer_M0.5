@@ -1,6 +1,31 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useAppContext } from '../../store/AppContext';
+import { parseExcelOrCSV } from '../../utils/ImportExport';
 
 export function Header() {
+  const { state, dispatch } = useAppContext();
+  const fileInputRef = useRef(null);
+
+  const handleImportClick = () => {
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const parsedData = await parseExcelOrCSV(file, state.config);
+      dispatch({ type: "SET_DATA_TABLE", payload: parsedData });
+      dispatch({ type: "ADD_LOG", payload: { type: "Info", message: `Successfully imported ${parsedData.length} rows from ${file.name}` }});
+    } catch (err) {
+      dispatch({ type: "ADD_LOG", payload: { type: "Error", message: `Failed to import file: ${err.message}` }});
+      alert(`Error importing file: ${err.message}`);
+    }
+
+    e.target.value = null;
+  };
+
   return (
     <header className="bg-slate-900 text-white shadow-md border-b border-slate-700">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -9,12 +34,25 @@ export function Header() {
             PCF Validator & Smart Fixer
           </h1>
           <nav className="flex space-x-2">
-            <button className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-800 transition-colors flex items-center">
+            <button
+              className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-800 transition-colors flex items-center opacity-50 cursor-not-allowed"
+              title="PCF parser not implemented in this mock"
+            >
               Import PCF ▼
             </button>
-            <button className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-800 transition-colors flex items-center">
+            <button
+              onClick={handleImportClick}
+              className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-800 transition-colors flex items-center"
+            >
               Import Excel/CSV ▼
             </button>
+            <input
+              type="file"
+              accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
           </nav>
         </div>
 
