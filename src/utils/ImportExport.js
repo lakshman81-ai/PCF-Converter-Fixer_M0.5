@@ -33,17 +33,21 @@ export async function parseExcelOrCSV(file, config) {
 }
 
 function mapHeadersAndValidate(rawRows, config) {
-  // Simplified fuzzy matching: fallback to exact matches or lowercase
-  // In a full implementation, you'd match against config.alias definitions
   const normalizedRows = rawRows.map((row, index) => {
     const getVal = (keys) => {
-      const k = Object.keys(row).find(k => keys.includes(k.toLowerCase().trim()));
+      // Allow partial matches or exact lowercased matches
+      const k = Object.keys(row).find(actualKey => {
+        const normActual = actualKey.toLowerCase().trim();
+        return keys.some(expected => normActual.includes(expected));
+      });
       return k ? row[k] : undefined;
     };
 
     const parseCoord = (str) => {
-      if (!str || typeof str !== 'string') return null;
-      const parts = str.split(/\s+/).map(Number);
+      if (!str) return null;
+      // Handle both string coordinates and objects if already parsed
+      if (typeof str === 'object' && str.x !== undefined) return str;
+      const parts = String(str).split(/[,\s]+/).map(Number).filter(n => !isNaN(n));
       if (parts.length >= 3) return { x: parts[0], y: parts[1], z: parts[2] };
       return null;
     };
