@@ -1,0 +1,168 @@
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
+import ExcelJS from 'exceljs';
+import { validateInputRows } from './ZodSchemas';
+
+export async function parseExcelOrCSV(file, config) {
+  return new Promise((resolve, reject) => {
+    const isCSV = file.name.toLowerCase().endsWith('.csv');
+
+    if (isCSV) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const rawRows = results.data;
+          resolve(mapHeadersAndValidate(rawRows, config));
+        },
+        error: (err) => reject(err)
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json(firstSheet);
+        resolve(mapHeadersAndValidate(rawRows, config));
+      };
+      reader.onerror = (err) => reject(err);
+      reader.readAsArrayBuffer(file);
+    }
+  });
+}
+
+function mapHeadersAndValidate(rawRows, config) {
+  // Simplified fuzzy matching: fallback to exact matches or lowercase
+  // In a full implementation, you'd match against config.alias definitions
+  const normalizedRows = rawRows.map((row, index) => {
+    const getVal = (keys) => {
+      const k = Object.keys(row).find(k => keys.includes(k.toLowerCase().trim()));
+      return k ? row[k] : undefined;
+    };
+
+    const parseCoord = (str) => {
+      if (!str || typeof str !== 'string') return null;
+      const parts = str.split(/\s+/).map(Number);
+      if (parts.length >= 3) return { x: parts[0], y: parts[1], z: parts[2] };
+      return null;
+    };
+
+    return {
+      _rowIndex: index + 1,
+      type: getVal(['type', 'component', 'fitting']) || 'UNKNOWN',
+      bore: Number(getVal(['bore', 'size', 'dia'])) || 0,
+      ep1: parseCoord(getVal(['ep1', 'ep1 coords', 'start'])),
+      ep2: parseCoord(getVal(['ep2', 'ep2 coords', 'end'])),
+      cp: parseCoord(getVal(['cp', 'cp coords', 'center'])),
+      bp: parseCoord(getVal(['bp', 'bp coords', 'branch'])),
+      ca: {
+        1: getVal(['ca1', 'pressure']),
+        2: getVal(['ca2', 'temp']),
+        3: getVal(['ca3', 'material']),
+        4: getVal(['ca4', 'thickness']),
+      },
+      skey: getVal(['skey']),
+    };
+  });
+
+  return validateInputRows(normalizedRows);
+}
+
+export async function exportToExcel(dataTable) {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('PCF Data');
+
+  sheet.columns = [
+    { header: 'Row', key: '_rowIndex', width: 5 },
+    { header: 'Type', key: 'type', width: 15 },
+    { header: 'Bore', key: 'bore', width: 10 },
+    { header: 'EP1', key: 'ep1', width: 30 },
+    { header: 'EP2', key: 'ep2', width: 30 },
+    { header: 'Fixing Action', key: 'fixingAction', width: 40 },
+  ];
+
+  dataTable.forEach(row => {
+    const excelRow = sheet.addRow({
+      _rowIndex: row._rowIndex,
+      type: row.type,
+      bore: row.bore,
+      ep1: row.ep1 ? `${row.ep1.x} ${row.ep1.y} ${row.ep1.z}` : '',
+      ep2: row.ep2 ? `${row.ep2.x} ${row.ep2.y} ${row.ep2.z}` : '',
+      fixingAction: row.fixingAction || '',
+    });
+
+    if (row.fixingActionTier) {
+      const cell = excelRow.getCell('fixingAction');
+      if (row.fixingActionTier === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4EDDA' } };
+      if (row.fixingActionTier === 2) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+      if (row.fixingActionTier === 3) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5D0' } };
+      if (row.fixingActionTier === 4) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8D7DA' } };
+    }
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'PCF_Data_Export.xlsx';
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+export function generatePCFText(dataTable, config) {
+  let lines = [];
+  lines.push("ISOGEN-FILES ISOGEN.FLS");
+  lines.push("UNITS-BORE MM");
+  lines.push("UNITS-CO-ORDS MM");
+  lines.push("UNITS-WEIGHT KGS");
+  lines.push("UNITS-BOLT-DIA MM");
+  lines.push("UNITS-BOLT-LENGTH MM");
+  lines.push("PIPELINE-REFERENCE export EX-LINE-001");
+  lines.push("    PROJECT-IDENTIFIER P1");
+  lines.push("    AREA A1");
+  lines.push("");
+
+  const formatCoord = (c, b) => {
+    const d = config.decimals || 4;
+    return `${c.x.toFixed(d)} ${c.y.toFixed(d)} ${c.z.toFixed(d)} ${b.toFixed(d)}`;
+  };
+
+  dataTable.forEach(row => {
+    if (!row.type || row.type === "UNKNOWN") return;
+
+    lines.push("MESSAGE-SQUARE  ");
+    lines.push(`    ${row.type}, RefNo:Row-${row._rowIndex}, SeqNo:${row._rowIndex}`);
+
+    if (row.type === "SUPPORT") {
+      lines.push("SUPPORT");
+      if (row.supportCoor) lines.push(`    CO-ORDS    ${formatCoord(row.supportCoor, 0)}`);
+      lines.push(`    <SUPPORT_NAME>    ${row.supportName || 'RST'}`);
+      lines.push(`    <SUPPORT_GUID>    ${row.supportGuid || 'UCI:SUP-1'}`);
+    } else {
+      lines.push(row.type.toUpperCase());
+
+      if (row.type === "OLET") {
+        if (row.cp) lines.push(`    CENTRE-POINT  ${formatCoord(row.cp, row.bore)}`);
+        if (row.bp) lines.push(`    BRANCH1-POINT ${formatCoord(row.bp, row.branchBore || 50)}`);
+      } else {
+        if (row.ep1) lines.push(`    END-POINT    ${formatCoord(row.ep1, row.bore)}`);
+        if (row.ep2) lines.push(`    END-POINT    ${formatCoord(row.ep2, row.bore)}`);
+        if ((row.type === "BEND" || row.type === "TEE") && row.cp) {
+          lines.push(`    CENTRE-POINT  ${formatCoord(row.cp, row.bore)}`);
+        }
+        if (row.type === "TEE" && row.bp) {
+          lines.push(`    BRANCH1-POINT ${formatCoord(row.bp, row.branchBore || row.bore)}`);
+        }
+      }
+
+      if (row.skey) {
+        lines.push(`    <SKEY>  ${row.skey}`);
+      }
+    }
+    lines.push("");
+  });
+
+  return lines.join("\r\n");
+}

@@ -3,6 +3,7 @@ import { useAppContext } from '../../store/AppContext';
 import { runSmartFix } from '../../engine/Orchestrator';
 import { applyFixes } from '../../engine/FixApplicator';
 import { createLogger } from '../../utils/Logger';
+import { exportToExcel, generatePCFText } from '../../utils/ImportExport';
 
 export function StatusBar() {
   const { state, dispatch } = useAppContext();
@@ -33,6 +34,27 @@ export function StatusBar() {
   const isRunning = state.smartFix.status === "running";
   const isApplying = state.smartFix.status === "applying";
 
+  const handleExportExcel = async () => {
+    try {
+      await exportToExcel(state.dataTable);
+      dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Exported Data Table to Excel." }});
+    } catch (err) {
+      alert("Error exporting Excel: " + err.message);
+    }
+  };
+
+  const handleExportPCF = () => {
+    const text = generatePCFText(state.dataTable, state.config);
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'export.pcf';
+    a.click();
+    window.URL.revokeObjectURL(url);
+    dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Exported PCF file." }});
+  };
+
   const d = new Date();
   const verString = `Ver ${d.getDate().toString().padStart(2, '0')}-${(d.getMonth()+1).toString().padStart(2, '0')}-${d.getFullYear()} (1)`;
 
@@ -40,13 +62,13 @@ export function StatusBar() {
     <div className="fixed bottom-0 left-0 right-0 h-12 bg-slate-800 text-white flex items-center justify-between px-4 text-sm z-50">
       <div className="flex items-center space-x-4">
         <span className="text-slate-300">Ready</span>
-        <button disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
+        <button onClick={handleExportExcel} disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
           Export Data Table ↓
         </button>
-        <button disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
+        <button onClick={handleExportPCF} disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
           Export PCF ↓
         </button>
-        <button disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
+        <button disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50 opacity-50 cursor-not-allowed" title="Not implemented in this UI">
           Run Validator ▶
         </button>
       </div>

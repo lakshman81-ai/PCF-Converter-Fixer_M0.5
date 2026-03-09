@@ -3,6 +3,8 @@ import { Header } from './ui/components/Header';
 import { StatusBar } from './ui/components/StatusBar';
 import { DataTableTab } from './ui/tabs/DataTableTab';
 import { DebugTab } from './ui/tabs/DebugTab';
+import { ConfigTab } from './ui/tabs/ConfigTab';
+import { OutputTab } from './ui/tabs/OutputTab';
 import { AppProvider, useAppContext } from './store/AppContext';
 
 function MainApp() {
@@ -68,9 +70,9 @@ function MainApp() {
         {/* Tab Content */}
         <div className="bg-white rounded shadow-sm min-h-[500px] border border-slate-200">
           {activeTab === 'data' && <DataTableTab />}
-          {activeTab === 'config' && <div className="p-8 text-slate-500 text-center">Config UI (To be implemented)</div>}
+          {activeTab === 'config' && <ConfigTab />}
           {activeTab === 'debug' && <div className="p-4"><DebugTab /></div>}
-          {activeTab === 'output' && <div className="p-8 text-slate-500 text-center">PCF Output Viewer (To be implemented)</div>}
+          {activeTab === 'output' && <OutputTab />}
         </div>
       </main>
 
