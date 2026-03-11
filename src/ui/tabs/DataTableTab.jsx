@@ -26,7 +26,7 @@ export function DataTableTab() {
       const updatedTable = [...state.dataTable];
       const rowIdx = updatedTable.findIndex(r => r._rowIndex === rowIndex);
       if (rowIdx > -1) {
-          updatedTable[rowIdx]._fixApproved = approve;
+          updatedTable[rowIdx] = { ...updatedTable[rowIdx], _fixApproved: approve };
           dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
       }
   };
