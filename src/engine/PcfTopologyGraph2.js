@@ -1,8 +1,22 @@
 import { vec } from '../math/VectorMath.js';
 import { getEntryPoint, getExitPoint } from './GraphBuilder.js';
 
+import { buildConnectivityGraph as spatialGraphBuilder } from './GraphBuilder.js';
+
 export function PcfTopologyGraph2(dataTable, config, logger) {
-    logger.push({ type: "Info", message: "═══ RUNNING PcfTopologyGraph_2 ENGINE ═══" });
+    logger.push({ stage: "FIXING", type: "Info", message: "═══ RUNNING PcfTopologyGraph_2 ENGINE ═══" });
+
+    const strategy = config.smartFixer?.chainingStrategy ?? "strict_sequential";
+
+    // Auto-select based on mode
+    if (strategy !== "strict_sequential") {
+        logger.push({ stage: "FIXING", type: "Info", message: "Executing Dual Strategy: Spatial Mode via GraphBuilder" });
+        const graph = spatialGraphBuilder(dataTable, config);
+        // Note: spatialGraphBuilder returns the full graph structure rather than direct { proposals }.
+        // For consistency in the PcfTopologyGraph2 engine signature, we return an empty array for proposals
+        // to prevent downstream crashes, letting the spatial walker take over logic in broader execution.
+        return { proposals: [], graph };
+    }
 
     // Pass 1: Sequential Topological Tracing
     // Filter physical components
@@ -14,7 +28,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
 
     const isImmutable = (type) => ['FLANGE', 'BEND', 'TEE', 'VALVE'].includes(type);
 
-    logger.push({ type: "Info", message: "Executing Pass 1: Sequential Topological Tracing" });
+    logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 1: Sequential Topological Tracing" });
     for (let i = 0; i < physicals.length - 1; i++) {
         const A = physicals[i];
         const B = physicals[i+1];
@@ -62,17 +76,17 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                     description
                 });
 
-                logger.push({ type: "Fix", tier: dist < 25 ? 2 : 3, row: A._rowIndex, message: description });
+                logger.push({ stage: "FIXING", type: "Fix", tier: dist < 25 ? 2 : 3, row: A._rowIndex, message: description });
             }
         }
     }
 
     // Pass 2: Global Fuzzy Search (Major Axis) up to 6000mm
     // (For this mock, we identify open endpoints remaining)
-    logger.push({ type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)" });
+    logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)" });
 
     // Pass 3: Global Fuzzy Search up to 15000mm
-    logger.push({ type: "Info", message: "Executing Pass 3: Global Fuzzy Search (No Axis Sense)" });
+    logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 3: Global Fuzzy Search (No Axis Sense)" });
 
     return { proposals };
 }

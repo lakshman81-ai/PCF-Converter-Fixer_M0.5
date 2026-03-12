@@ -4,10 +4,15 @@ import { getEntryPoint, getExitPoint } from './GraphBuilder.js';
 import { analyzeGap } from './GapOverlap.js';
 import { sweepForNeighbor } from './pte-engine.js';
 import { runElementRules, runSupportRules, runAggRules } from './rules/RuleRunner.js';
+import { detectDuplicates, detectOrphans } from './rules/AggRules.js';
+import { runSpaRules } from './rules/SpaRules.js';
 
 export function walkAllChains(graph, config, log) {
   const visited = new Set();
   const allChains = [];
+
+  // Pre-walk duplicate check
+  detectDuplicates(graph.components, config, log);
 
   for (const terminal of graph.terminals) {
     if (visited.has(terminal._rowIndex)) continue;
@@ -34,7 +39,8 @@ export function walkAllChains(graph, config, log) {
       log.push({ type: "Info", message: "Starting Stage 2: Constrained Orphan Sweep for non-sequential matches..." });
       for (let i = orphans.length - 1; i >= 0; i--) {
           const orphan = orphans[i];
-          const neighbor = sweepForNeighbor(orphan, graph.components, config);
+          // Pass the KD tree to the sweep engine instead of array
+          const neighbor = sweepForNeighbor(orphan, graph.entryTree, config);
           if (neighbor) {
               log.push({ type: "Info", message: `Orphan ${orphan.type} (Row ${orphan._rowIndex}) matched to ${neighbor.type} (Row ${neighbor._rowIndex}) via axis_sweep.` });
               // Simulate chaining
@@ -43,14 +49,12 @@ export function walkAllChains(graph, config, log) {
       }
   }
 
-  for (const orphan of orphans) {
-    log.push({
-      type: "Error", ruleId: "R-TOP-02", tier: 4, row: orphan._rowIndex,
-      message: `Orphan: ${orphan.type} (Row ${orphan._rowIndex}) not connected to any chain.`
-    });
-  }
+  const finalOrphans = detectOrphans(graph.components, visited, log);
 
-  return { chains: allChains, orphans };
+  // Post-walk spatial coordinate cleanup
+  runSpaRules(graph.components, allChains, config, log);
+
+  return { chains: allChains, orphans: finalOrphans };
 }
 
 function createInitialContext(startElement, chainIndex) {
