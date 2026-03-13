@@ -149,7 +149,7 @@ export function ConfigTab() {
           <h3 className="font-semibold text-slate-700 mb-3">Geometry Thresholds (mm)</h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Micro-Pipe Deletion</label>
+              <label className="text-sm text-slate-600">Micro-Pipe Deletion Threshold (mm)</label>
               <input type="number" step="0.1" value={localConfig.smartFixer.microPipeThreshold} onChange={(e) => updateSmartFixer('microPipeThreshold', e.target.value)} className="w-24 p-1 border rounded text-right text-sm font-mono" />
             </div>
             <div className="flex justify-between items-center">
@@ -191,11 +191,11 @@ export function ConfigTab() {
           <h3 className="font-semibold text-slate-700 mb-3">Topological Rules</h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Route Closure Warning (mm)</label>
+              <label className="text-sm text-slate-600">Topological Route Closure Alert (mm)</label>
               <input type="number" step="0.1" value={localConfig.smartFixer.closureWarningThreshold} onChange={(e) => updateSmartFixer('closureWarningThreshold', e.target.value)} className="w-24 p-1 border rounded text-right text-sm font-mono" />
             </div>
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Route Closure Error (mm)</label>
+              <label className="text-sm text-slate-600">Topological Route Closure Max Gap (mm)</label>
               <input type="number" step="0.1" value={localConfig.smartFixer.closureErrorThreshold} onChange={(e) => updateSmartFixer('closureErrorThreshold', e.target.value)} className="w-24 p-1 border rounded text-right text-sm font-mono" />
             </div>
             <div className="flex justify-between items-center">

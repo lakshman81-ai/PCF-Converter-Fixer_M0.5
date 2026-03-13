@@ -184,7 +184,7 @@ export function StatusBar() {
           disabled={!isDataLoaded}
           className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50"
         >
-          Run Validator ▶
+          Run Phase 1 Validator (Only Pipe filling/Trimming) ▶
         </button>
       </div>
 

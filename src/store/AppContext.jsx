@@ -27,7 +27,7 @@ const initialState = {
     smartFixer: {
       connectionTolerance: 25.0,
       gridSnapResolution: 1.0,
-      microPipeThreshold: 6.0,
+      microPipeThreshold: 0.0,
       microFittingThreshold: 1.0,
       negligibleGap: 1.0,
       autoFillMaxGap: 25.0,
@@ -41,7 +41,7 @@ const initialState = {
       fittingDimensionTolerance: 0.20,
       bendRadiusTolerance: 0.05,
       minTangentMultiplier: 1.0,
-      closureWarningThreshold: 5.0,
+      closureWarningThreshold: 0.0,
       closureErrorThreshold: 50.0,
       maxBoreForInchDetection: 48,
       oletMaxRatioWarning: 0.5,

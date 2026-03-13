@@ -42,17 +42,6 @@ export function DataTableTab({ stage = "1" }) {
       if (stage === "3") dispatch({ type: "SET_STAGE_3_DATA", payload: updatedTable });
   };
 
-  const handleIgnoreAllWarnings = () => {
-      const updatedTable = dataTable.map(r => {
-          if (r.fixingAction && r.fixingActionRuleId && r.fixingAction.includes('WARNING')) {
-              return { ...r, _fixIgnored: true };
-          }
-          return r;
-      });
-      if (stage === "1") dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
-      if (stage === "2") dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
-      if (stage === "3") dispatch({ type: "SET_STAGE_3_DATA", payload: updatedTable });
-  };
 
   const handleCalculateMissingGeometry = () => {
        const updatedTable = dataTable.map((row, index, arr) => {
@@ -384,11 +373,11 @@ export function DataTableTab({ stage = "1" }) {
 
                 {(stage === "2" || stage === "3") && (
                     <>
-                        <button onClick={handleValidateSyntax} className="px-2.5 py-1 bg-white hover:bg-teal-50 text-slate-600 hover:text-teal-700 rounded text-xs font-semibold border border-transparent hover:border-teal-200 transition-all shadow-sm" title="Run strict Data Table validation checks">
-                            <span className="mr-1">🛡️</span>Validate Rules
+                        <button disabled className="px-2.5 py-1 bg-slate-50 text-slate-400 rounded text-xs font-semibold border border-slate-200 shadow-sm opacity-50 cursor-not-allowed" title="Run strict Data Table validation checks">
+                            <span className="mr-1 opacity-50">🛡️</span>Validate Rules
                         </button>
-                        <button onClick={handleIgnoreAllWarnings} className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-800 rounded text-xs font-semibold border border-transparent hover:border-slate-300 transition-all shadow-sm" title="Acknowledge and dismiss all current warnings">
-                            <span className="mr-1">👁️‍🗨️</span>Ignore Warnings
+                        <button disabled className="px-2.5 py-1 bg-slate-50 text-slate-400 rounded text-xs font-semibold border border-slate-200 shadow-sm opacity-50 cursor-not-allowed" title="Acknowledge and dismiss all current warnings">
+                            <span className="mr-1 opacity-50">👁️‍🗨️</span>Ignore Warnings
                         </button>
                         <button onClick={handleAutoApproveAll} className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold border border-indigo-200 transition-all shadow-sm ml-2" title="Approve all Tier 1/2 automated fixes">
                             <span className="mr-1">⚡</span>Auto Approve (&lt;25mm)
@@ -479,11 +468,15 @@ export function DataTableTab({ stage = "1" }) {
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-slate-200">
-          {filteredDataTable.map((row) => (
-            <tr key={row._rowIndex} className="hover:bg-slate-50 transition-colors whitespace-nowrap">
-              <td className="px-3 py-2 text-slate-500 border-r border-slate-200 sticky left-0 z-10 bg-white font-mono">{row._rowIndex}</td>
-              <td className={`px-3 py-2 border-r border-slate-200 sticky left-[60px] z-10 bg-white font-mono ${getCellClass(row, 'csvSeqNo')}`}>{row.csvSeqNo || '—'}</td>
-              <td className="px-3 py-2 font-medium text-slate-900 border-r border-slate-300 sticky left-[160px] z-10 bg-white">{row.type}</td>
+          {filteredDataTable.map((row) => {
+            const isDeleted = row._isDeleted || (row.fixingAction && row.fixingAction.includes('DELETE') && row._passApplied > 0);
+            const rowClass = isDeleted ? 'bg-red-50/50 opacity-60 line-through' : 'bg-white hover:bg-slate-50 transition-colors';
+
+            return (
+            <tr key={row._rowIndex} className={`${rowClass} whitespace-nowrap`}>
+              <td className={`px-3 py-2 text-slate-500 border-r border-slate-200 sticky left-0 z-10 font-mono ${isDeleted ? 'bg-red-50' : 'bg-white'}`}>{row._rowIndex}</td>
+              <td className={`px-3 py-2 border-r border-slate-200 sticky left-[60px] z-10 font-mono ${getCellClass(row, 'csvSeqNo')} ${isDeleted ? 'bg-red-50' : 'bg-white'}`}>{row.csvSeqNo || '—'}</td>
+              <td className={`px-3 py-2 font-medium text-slate-900 border-r border-slate-300 sticky left-[160px] z-10 ${isDeleted ? 'bg-red-50' : 'bg-white'}`}>{row.type}</td>
               <td className="px-3 py-2 text-slate-500 border-r border-slate-200 truncate max-w-[200px]" title={row.text}>{row.text || '—'}</td>
               <td className="px-3 py-2 text-slate-500 border-r border-slate-200">{row.pipelineRef || '—'}</td>
               <td className={`px-3 py-2 border-r border-slate-200 ${getCellClass(row, 'refNo')}`}>{row.refNo || '—'}</td>
@@ -521,7 +514,7 @@ export function DataTableTab({ stage = "1" }) {
                   <td key={`ca${n}`} className="px-3 py-2 text-slate-500 border-r border-slate-200">{row.ca?.[n] || '—'}</td>
               ))}
             </tr>
-          ))}
+          )})}
         </tbody>
           </table>
     </div>
