@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAppContext } from '../../store/AppContext';
+import { useStore } from '../../store/useStore';
 
 export function DataTableTab() {
   const { state, dispatch } = useAppContext();
@@ -12,12 +13,16 @@ export function DataTableTab() {
       if (rowIdx > -1) {
           updatedTable[rowIdx] = { ...updatedTable[rowIdx], _fixApproved: approve };
           dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
+          // Ensure Zustand proposals match this state so 3D canvas popups turn green
+          useStore.getState().setProposalStatus(rowIndex, approve);
       }
   };
 
   const handleAutoApproveAll = () => {
       const updatedTable = state.dataTable.map(r => {
           if (r.fixingActionTier && r.fixingActionTier <= 2) {
+              // Sync to Zustand 3D proposals instantly
+              useStore.getState().setProposalStatus(r._rowIndex, true);
               return { ...r, _fixApproved: true };
           }
           return r;
