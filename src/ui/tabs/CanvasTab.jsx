@@ -120,8 +120,8 @@ const ProposalOverlay = ({ proposal }) => {
           r._rowIndex === elementA._rowIndex ? { ...r, _fixApproved: true } : r
       );
 
-      const logger = new Logger();
-      const result = applyFixes(updatedTable, appState.smartFix.chains, appState.config, logger.getLog ? logger : { push: () => {}, getLog: () => [] });
+      const logger = createLogger();
+      const result = applyFixes(updatedTable, appState.smartFix.chains, appState.config, logger);
       const tableToApply = result.updatedTable || result.table || result;
 
       dispatch({ type: "SET_STAGE_2_DATA", payload: tableToApply });

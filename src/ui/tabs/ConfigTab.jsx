@@ -63,7 +63,11 @@ export function ConfigTab() {
               { id: 'V17', desc: 'Reserved' },
               { id: 'V18', desc: 'Bore unit (MM/Inch check)' },
               { id: 'V19', desc: 'SUPPORT MSG-SQ tokens' },
-              { id: 'V20', desc: 'SUPPORT GUID Prefix (UCI:)' }
+              { id: 'V20', desc: 'SUPPORT GUID Prefix (UCI:)' },
+              { id: 'V21', desc: 'TEE BP Definition/Distance' },
+              { id: 'V22', desc: 'BEND minimum radius' },
+              { id: 'V23', desc: 'OLET CP/BP definition' },
+              { id: 'V24', desc: 'BEND valid angle calculation' }
             ].map(({ id, desc }) => {
                 const checked = localConfig.enabledChecks ? localConfig.enabledChecks[id] !== false : true;
                 return (

@@ -125,7 +125,7 @@ export function runValidationChecklist(dataTable, config, logger) {
     checkV1(row.bp, "BP");
     checkV1(row.supportCoor, "CO-ORDS");
 
-    // V4, V5, V6, V7: BEND checks
+    // V4, V5, V6, V7, V22, V24: BEND checks
     if (type === "BEND") {
       if (row.cp && row.ep1 && vec.approxEqual(row.cp, row.ep1, 0.1)) {
         logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V4", tier: 4, row: ri, message: "ERROR [V4]: BEND CP equals EP1." });
@@ -138,7 +138,7 @@ export function runValidationChecklist(dataTable, config, logger) {
       if (row.cp && row.ep1 && row.ep2) {
         const v1 = vec.sub(row.ep1, row.cp);
         const v2 = vec.sub(row.ep2, row.cp);
-        if (vec.mag(vec.cross(v1, v2)) < 0.001) {
+        if (shouldRun('V6') && vec.mag(vec.cross(v1, v2)) < 0.001) {
           logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V6", tier: 4, row: ri, message: "ERROR [V6]: BEND CP is collinear with EPs." });
           errorCount++;
         }
@@ -148,10 +148,33 @@ export function runValidationChecklist(dataTable, config, logger) {
           logger.push({ stage: "VALIDATION", type: "Warning", ruleId: "V7", tier: 3, row: ri, message: `WARNING [V7]: BEND not equidistant. R1=${r1.toFixed(1)}, R2=${r2.toFixed(1)}.` });
           warnCount++;
         }
+
+        if (shouldRun('V22')) {
+            // Check Bend Radius
+            if (r1 < 1 || r2 < 1) {
+                 logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V22", tier: 4, row: ri, message: `ERROR [V22]: BEND Radius is unrealistically small (<1mm).` });
+                 errorCount++;
+            }
+        }
+
+        if (shouldRun('V24')) {
+            const magV1 = vec.mag(v1);
+            const magV2 = vec.mag(v2);
+            if (magV1 > 0 && magV2 > 0) {
+                const dot = vec.dot(v1, v2) / (magV1 * magV2);
+                if (dot > 0.99) {
+                     logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V24", tier: 4, row: ri, message: `ERROR [V24]: BEND angle invalid (0-degree foldback).` });
+                     errorCount++;
+                } else if (dot < -0.99) {
+                     logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V24", tier: 4, row: ri, message: `ERROR [V24]: BEND angle invalid (180-degree straight pipe).` });
+                     errorCount++;
+                }
+            }
+        }
       }
     }
 
-    // V8, V9, V10: TEE checks
+    // V8, V9, V10, V21: TEE checks
     if (type === "TEE") {
       if (row.cp && row.ep1 && row.ep2) {
         const mid = vec.mid(row.ep1, row.ep2);
@@ -169,6 +192,18 @@ export function runValidationChecklist(dataTable, config, logger) {
           logger.push({ stage: "VALIDATION", type: "Warning", ruleId: "V10", tier: 3, row: ri, message: "WARNING [V10]: TEE Branch is not perpendicular to header." });
           warnCount++;
         }
+      }
+      if (shouldRun('V21')) {
+          if (!row.bp) {
+              logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V21", tier: 4, row: ri, message: "ERROR [V21]: TEE is missing Branch Point (BP)." });
+              errorCount++;
+          } else if (row.cp && vec.approxEqual(row.cp, row.bp, 0.1)) {
+              logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V21", tier: 4, row: ri, message: "ERROR [V21]: TEE BP is coincident with CP." });
+              errorCount++;
+          } else if (row.cp && row.brlen && Math.abs(vec.dist(row.cp, row.bp) - row.brlen) > 1.0) {
+              logger.push({ stage: "VALIDATION", type: "Warning", ruleId: "V21", tier: 3, row: ri, message: "WARNING [V21]: TEE BP distance from CP does not match BRLEN." });
+              warnCount++;
+          }
       }
     }
 

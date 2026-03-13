@@ -11,7 +11,8 @@ const initialState = {
         V1: true, V2: true, V3: true, V4: true, V5: true,
         V6: true, V7: true, V8: true, V9: true, V10: true,
         V11: true, V12: true, V13: true, V14: true, V15: true,
-        V16: true, V17: true, V18: true, V19: true, V20: true
+        V16: true, V17: true, V18: true, V19: true, V20: true,
+        V21: true, V22: true, V23: true, V24: true
     },
     pteMode: {
       autoMultiPassMode: true,
