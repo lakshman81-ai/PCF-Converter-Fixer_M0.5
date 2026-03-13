@@ -117,12 +117,22 @@ export async function parsePCF(file, config) {
 
           if (currentRow) {
             const parts = trimmed.split(/\s+/);
-            const key = parts[0];
+            let key = parts[0];
 
             if (currentRow._isMessageSquare) {
-               // We are in a message square block, the text inside it belongs to this component
                if (!currentRow.text) currentRow.text = trimmed;
-               continue;
+
+               // BM5 Fallback: sometimes the message square contains the type and a malformed string
+               if (currentRow.text.includes("X") && currentRow.text.includes("Y") && currentRow.text.includes("Z")) {
+                   currentRow.type = trimmed.split(/\s+/)[0];
+                   currentRow._isMessageSquare = false;
+                   key = currentRow.type;
+
+                   // BM5 Fix: we continue here so it doesn't process "OLET" as a component attribute or crash below.
+                   continue;
+               } else {
+                   continue;
+               }
             }
 
             if (key !== "END-POINT" && key !== "CENTRE-POINT" && key !== "BRANCH1-POINT" && key !== "CO-ORDS" && !key.startsWith("<") && !key.startsWith("COMPONENT-ATTRIBUTE") && !key.startsWith("WEIGHT") && !key.startsWith("ITEM-CODE") && !key.startsWith("ITEM-DESCRIPTION") && !key.startsWith("FABRICATION-ITEM") && !key.startsWith("PIPING-SPEC") && !key.startsWith("TRACING-SPEC") && !key.startsWith("INSULATION-SPEC") && !key.startsWith("PAINTING-SPEC") && !key.startsWith("CONTINUATION")) {

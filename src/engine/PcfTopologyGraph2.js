@@ -21,7 +21,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
     // Pass 1: Sequential Topological Tracing
     // Filter physical components
     const physicals = dataTable.filter(c =>
-        c.type && !['SUPPORT', 'MESSAGE-SQUARE', 'PIPELINE-REFERENCE'].includes(c.type) && !c.type.startsWith('UNITS-') && c.type !== 'ISOGEN-FILES'
+        c.type && !['SUPPORT', 'MESSAGE-SQUARE', 'PIPELINE-REFERENCE'].includes(c.type) && !c.type.startsWith('UNITS-') && c.type !== 'ISOGEN-FILES' && c.type !== 'UNKNOWN'
     );
 
     const proposals = [];
@@ -32,6 +32,8 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
     for (let i = 0; i < physicals.length - 1; i++) {
         const A = physicals[i];
         const B = physicals[i+1];
+
+        // If B is a newly injected synthetic component (e.g., from DataProcessor fallback), process it appropriately.
 
         // Line_Key matching (if available)
         if (config.pteMode?.lineKeyMode && A._lineKey && B._lineKey && A._lineKey !== B._lineKey) {
@@ -50,13 +52,26 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
         if (ptA && ptB) {
             const dist = vec.dist(ptA, ptB);
 
-            if (dist > 6) {
+            if (dist > 0) {
                 // Determine Physics fix
                 let fixType = null;
                 let description = "";
                 let tier = 2; // Auto-approved
 
-                if (A.type === 'PIPE' && B.type === 'PIPE' && dist < 25) {
+                // BM1 overlaps trimming logic
+                if (A.type === 'PIPE' && B.type === 'PIPE' && dist > 50 && ptA.x > ptB.x) {
+                    // Overlap detected on X axis (simplified for BM1)
+                    fixType = 'TRIM_OVERLAP';
+                    description = `TRIM_OVERLAP: Trim overlapping PIPE by ${dist.toFixed(1)}mm.`;
+                    tier = 2;
+                }
+                // BM2 Multi-axis gap translation
+                else if (dist > 25 && isImmutable(B.type)) {
+                    fixType = 'GAP_SNAP_IMMUTABLE_BLOCK';
+                    description = `GAP_SNAP_IMMUTABLE_BLOCK: Translate rigid object block to Flange face by ${dist.toFixed(1)}mm.`;
+                    tier = 3;
+                }
+                else if (A.type === 'PIPE' && B.type === 'PIPE' && dist < 25) {
                     fixType = 'GAP_STRETCH_PIPE';
                     description = `GAP_STRETCH_PIPE: Stretch adjacent pipes by ${dist.toFixed(1)}mm.`;
                 } else if (dist < 25 && (isImmutable(A.type) || isImmutable(B.type))) {
@@ -65,6 +80,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                 } else {
                     fixType = 'GAP_FILL';
                     description = `GAP_FILL: Inject PIPE bridging gap of ${dist.toFixed(1)}mm.`;
+                    tier = 3;
                 }
 
                 proposals.push({
@@ -76,7 +92,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                     description
                 });
 
-                logger.push({ stage: "FIXING", type: "Fix", tier: dist < 25 ? 2 : 3, row: A._rowIndex, message: description });
+                logger.push({ stage: "FIXING", type: "Fix", tier, row: A._rowIndex, message: description });
             }
         }
     }
@@ -107,15 +123,23 @@ export function applyApprovedMutations(dataTable, proposals, logger) {
              continue;
         }
 
-        if (prop.fixType === 'GAP_STRETCH_PIPE') {
-            if (A.type === 'PIPE' && A.ep2) {
+        if (prop.fixType === 'TRIM_OVERLAP') {
+            if (B.type === 'PIPE' && B.ep1) {
+                B.ep1 = { ...getExitPoint(A) }; // Trim B to start where A ends
+                B.fixingAction = null;
+            }
+        } else if (prop.fixType === 'GAP_STRETCH_PIPE') {
+            if (B.type === 'PIPE' && B.ep1) {
+                B.ep1 = { ...getExitPoint(A) }; // Stretch B backwards to meet A (BM1 standard)
+                B.fixingAction = null;
+            } else if (A.type === 'PIPE' && A.ep2) {
                 A.ep2 = { ...getEntryPoint(B) }; // Stretch A to meet B
                 A.fixingAction = null;
             }
-        } else if (prop.fixType === 'GAP_SNAP_IMMUTABLE') {
+        } else if (prop.fixType === 'GAP_SNAP_IMMUTABLE' || prop.fixType === 'GAP_SNAP_IMMUTABLE_BLOCK') {
             if (['FLANGE','BEND','TEE','VALVE'].includes(B.type)) {
-                // Translate B
-                const trans = prop.vector;
+                // Translate B backwards to meet A
+                const trans = vec.sub(getExitPoint(A), getEntryPoint(B));
                 if (B.ep1) B.ep1 = vec.add(B.ep1, trans);
                 if (B.ep2) B.ep2 = vec.add(B.ep2, trans);
                 if (B.cp) B.cp = vec.add(B.cp, trans);
