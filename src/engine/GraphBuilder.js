@@ -1,8 +1,16 @@
 import { vec } from '../math/VectorMath.js';
-import { KDTree } from '../math/KDTree.js';
 
 export function buildConnectivityGraph(dataTable, config) {
   const tolerance = Number(config?.smartFixer?.connectionTolerance ?? 25.0);
+  const gridSnap = Number(config?.smartFixer?.gridSnapResolution ?? 1.0);
+
+  // Snap coordinate to grid for indexing
+  const snap = (coord) => ({
+    x: Math.round(Number(coord.x) / gridSnap) * gridSnap,
+    y: Math.round(Number(coord.y) / gridSnap) * gridSnap,
+    z: Math.round(Number(coord.z) / gridSnap) * gridSnap,
+  });
+  const coordKey = (c) => `${c.x},${c.y},${c.z}`;
 
   // Step 1: Classify connection points per component
   const components = dataTable
@@ -16,14 +24,15 @@ export function buildConnectivityGraph(dataTable, config) {
       branchExitPoint: getBranchExitPoint(row), // null except for TEE
     }));
 
-  // Step 2: Build O(N log N) spatial KD-Tree for entry points
-  const kdPoints = [];
+  // Step 2: Build entry-point spatial index
+  const entryIndex = new Map();
   for (const comp of components) {
     if (comp.entryPoint && !vec.isZero(comp.entryPoint)) {
-      kdPoints.push({ coord: comp.entryPoint, element: comp });
+      const key = coordKey(snap(comp.entryPoint));
+      if (!entryIndex.has(key)) entryIndex.set(key, []);
+      entryIndex.get(key).push(comp);
     }
   }
-  const entryTree = new KDTree(kdPoints);
 
   // Step 3: Match exits to entries (build edges)
   const edges = new Map();      // comp._rowIndex → next comp
@@ -33,7 +42,7 @@ export function buildConnectivityGraph(dataTable, config) {
   for (const comp of components) {
     if (!comp.exitPoint || vec.isZero(comp.exitPoint)) continue;
 
-    const match = entryTree.findNearest(comp.exitPoint, tolerance, comp._rowIndex);
+    const match = findNearestEntry(comp.exitPoint, entryIndex, snap, coordKey, tolerance, comp._rowIndex);
     if (match) {
       edges.set(comp._rowIndex, match);
       hasIncoming.add(match._rowIndex);
@@ -41,7 +50,7 @@ export function buildConnectivityGraph(dataTable, config) {
 
     // Branch edge for TEE
     if (comp.branchExitPoint && !vec.isZero(comp.branchExitPoint)) {
-      const brMatch = entryTree.findNearest(comp.branchExitPoint, tolerance, comp._rowIndex);
+      const brMatch = findNearestEntry(comp.branchExitPoint, entryIndex, snap, coordKey, tolerance, comp._rowIndex);
       if (brMatch) {
         branchEdges.set(comp._rowIndex, brMatch);
         hasIncoming.add(brMatch._rowIndex);
@@ -54,7 +63,7 @@ export function buildConnectivityGraph(dataTable, config) {
     !hasIncoming.has(c._rowIndex) && c.type !== "SUPPORT"
   );
 
-  return { components, edges, branchEdges, terminals, entryTree };
+  return { components, edges, branchEdges, terminals, entryIndex };
 }
 
 export function getEntryPoint(row) {
@@ -77,4 +86,42 @@ export function getBranchExitPoint(row) {
   return null;
 }
 
-// `findNearestEntry` removed; superseded by KDTree's `findNearest` method
+export function findNearestEntry(exitCoord, entryIndex, snap, coordKey, tolerance, excludeRowIndex) {
+  const snapped = snap(exitCoord);
+  const key = coordKey(snapped);
+
+  let best = null;
+  let bestDist = tolerance + 1;
+  // Use O(N) spatial search as fallback because grid step is 1mm and gap can be 25mm.
+  for (const cands of entryIndex.values()) {
+    for (const cand of cands) {
+      if (cand._rowIndex === excludeRowIndex) continue;
+      const d = vec.dist(exitCoord, cand.entryPoint);
+      if (d <= tolerance && d < bestDist) {
+        bestDist = d;
+        best = cand;
+      }
+    }
+  }
+
+  if (!best) {
+    const step = snap({ x: 1, y: 1, z: 1 }).x; // gridSnap value
+    for (let dx = -step; dx <= step; dx += step) {
+      for (let dy = -step; dy <= step; dy += step) {
+        for (let dz = -step; dz <= step; dz += step) {
+          if (dx === 0 && dy === 0 && dz === 0) continue;
+          const nk = coordKey({
+            x: snapped.x + dx, y: snapped.y + dy, z: snapped.z + dz
+          });
+          for (const cand of (entryIndex.get(nk) || [])) {
+            if (cand._rowIndex === excludeRowIndex) continue;
+            const d = vec.dist(exitCoord, cand.entryPoint);
+            if (d < bestDist) { bestDist = d; best = cand; }
+          }
+        }
+      }
+    }
+  }
+
+  return best;
+}

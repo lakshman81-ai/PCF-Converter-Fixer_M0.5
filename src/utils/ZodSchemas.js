@@ -69,27 +69,15 @@ export const ConfigSchema = z.object({
 export const validateInputRows = (rows) => {
   // Pure JavaScript sanitization instead of strict Zod parsing
   // to avoid unpredictable internal `_zod` state errors.
-  return rows.map((r, i) => {
-    // Preserve coordinate objects exactly to prevent wiping them out
-    const cleanRow = {
-      ...r,
-      _rowIndex: r._rowIndex || i + 1,
-      type: (r.type || 'UNKNOWN').toUpperCase().trim(),
-      bore: Number(r.bore) || 0,
-      branchBore: r.branchBore ? Number(r.branchBore) : null,
-      skey: r.skey || '',
-      ca: r.ca || {},
-      _modified: r._modified || {},
-      _logTags: r._logTags || [],
-    };
-
-    // Explicitly copy coordinates if they exist
-    if (r.ep1) cleanRow.ep1 = r.ep1;
-    if (r.ep2) cleanRow.ep2 = r.ep2;
-    if (r.cp) cleanRow.cp = r.cp;
-    if (r.bp) cleanRow.bp = r.bp;
-    if (r.supportCoor) cleanRow.supportCoor = r.supportCoor;
-
-    return cleanRow;
-  });
+  return rows.map((r, i) => ({
+    ...r,
+    _rowIndex: r._rowIndex || i + 1,
+    type: (r.type || 'UNKNOWN').toUpperCase().trim(),
+    bore: Number(r.bore) || 0,
+    branchBore: r.branchBore ? Number(r.branchBore) : null,
+    skey: r.skey || '',
+    ca: r.ca || {},
+    _modified: r._modified || {},
+    _logTags: r._logTags || [],
+  }));
 };

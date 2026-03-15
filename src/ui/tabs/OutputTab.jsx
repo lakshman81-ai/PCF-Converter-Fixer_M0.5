@@ -10,12 +10,9 @@ export function OutputTab() {
     return generatePCFText(state.dataTable, state.config);
   }, [state.dataTable, state.config]);
 
-  const { dispatch } = useAppContext();
-
   const handleCopy = () => {
     navigator.clipboard.writeText(pcfText);
-    dispatch({ type: "SET_STATUS_MESSAGE", payload: "Copied to clipboard!" });
-    setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 3000);
+    alert("Copied to clipboard!");
   };
 
   return (

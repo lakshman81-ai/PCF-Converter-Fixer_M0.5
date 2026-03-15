@@ -1,338 +1,11 @@
 import React from 'react';
 import { useAppContext } from '../../store/AppContext';
-import { useStore } from '../../store/useStore';
-import { runValidationChecklist } from '../../engine/Validator';
-import { createLogger } from '../../utils/Logger';
-import { exportToExcel, generatePCFText } from '../../utils/ImportExport';
 
-export function DataTableTab({ stage = "1" }) {
-  const { state, dispatch } = useAppContext();
-  const [filterAction, setFilterAction] = React.useState('ALL');
-
-  let currentData;
-  if (stage === "1") currentData = state.dataTable;
-  else if (stage === "2") currentData = state.stage2Data;
-  else if (stage === "3") currentData = state.stage3Data;
-
-  const dataTable = currentData;
-
-  const handleApprove = (rowIndex, approve) => {
-      const updatedTable = [...dataTable];
-      const rowIdx = updatedTable.findIndex(r => r._rowIndex === rowIndex);
-      if (rowIdx > -1) {
-          updatedTable[rowIdx] = { ...updatedTable[rowIdx], _fixApproved: approve };
-          if (stage === "1") dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
-          if (stage === "2") dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
-          if (stage === "3") dispatch({ type: "SET_STAGE_3_DATA", payload: updatedTable });
-
-          const actionText = approve ? 'Approved' : 'Rejected';
-          const rowDescription = updatedTable[rowIdx].fixingAction ? updatedTable[rowIdx].fixingAction.substring(0, 50) + "..." : "";
-
-          dispatch({ type: "ADD_LOG", payload: {
-             stage: "FIXING",
-             type: approve ? "Applied" : "Warning",
-             row: rowIndex,
-             message: `User ${actionText} Fix: ${rowDescription}`
-          }});
-
-          // Ensure Zustand proposals match this state so 3D canvas popups turn green
-          if (stage === "2") useStore.getState().setProposalStatus(rowIndex, approve);
-      }
-  };
-
-  const handleAutoApproveAll = () => {
-      const updatedTable = dataTable.map(r => {
-          if (r.fixingActionTier && r.fixingActionTier <= 2) {
-              if (stage === "2") useStore.getState().setProposalStatus(r._rowIndex, true);
-              return { ...r, _fixApproved: true };
-          }
-          return r;
-      });
-      if (stage === "1") dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
-      if (stage === "2") dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
-      if (stage === "3") dispatch({ type: "SET_STAGE_3_DATA", payload: updatedTable });
-  };
-
-
-  const handleCalculateMissingGeometry = () => {
-       let bendPtr = 0, rigidPtr = 0, intPtr = 0;
-       let updatedItems = { bore: 0, boreFb: 0, cp: 0, delta: 0, len: 0, ptr: 0 };
-
-       const getAxis = (ep1, ep2) => {
-            const dx = ep2.x - ep1.x;
-            const dy = ep2.y - ep1.y;
-            const dz = ep2.z - ep1.z;
-            const absX = Math.abs(dx);
-            const absY = Math.abs(dy);
-            const absZ = Math.abs(dz);
-            if (absX > absY && absX > absZ) return dx > 0 ? 'East' : 'West';
-            if (absY > absX && absY > absZ) return dy > 0 ? 'Up' : 'Down';
-            if (absZ > absX && absZ > absY) return dz > 0 ? 'North' : 'South';
-            return 'U';
-       };
-
-       const dist = (ep1, ep2) => Math.sqrt((ep2.x-ep1.x)**2 + (ep2.y-ep1.y)**2 + (ep2.z-ep1.z)**2);
-
-       const updatedTable = dataTable.map((row, index, arr) => {
-            const r = { ...row };
-            const t = r.type || "";
-
-            // Auto inherit bore from previous row if missing
-            if ((!r.bore || r.bore === "") && index > 0) {
-                 const prev = arr[index - 1];
-                 if (prev.bore) {
-                     r.bore = prev.bore;
-                     r._modified = r._modified || {};
-                     r._modified.bore = "Inherited";
-                     updatedItems.bore++;
-                 }
-            }
-            // Missing Bore fallback for PIPES
-            if ((!r.bore || r.bore === "") && t === "PIPE" && r.ep1 && r.ep2) {
-                r.bore = 100;
-                r._modified = r._modified || {};
-                r._modified.bore = "Fallback";
-                updatedItems.boreFb++;
-            }
-            // Missing CP for TEES
-            if (t === "TEE" && (!r.cp || (r.cp.x === undefined && r.cp.y === undefined && r.cp.z === undefined) || (r.cp.x === 0 && r.cp.y === 0 && r.cp.z === 0)) && r.ep1 && r.ep2) {
-                r.cp = {
-                    x: (r.ep1.x + r.ep2.x) / 2,
-                    y: (r.ep1.y + r.ep2.y) / 2,
-                    z: (r.ep1.z + r.ep2.z) / 2
-                };
-                r._modified = r._modified || {};
-                r._modified.cp = "Calculated Midpoint";
-                updatedItems.cp++;
-            }
-
-            // Calculate Vector Deltas (Axis) if missing
-            if (r.ep1 && r.ep2 && (r.deltaX === undefined || r.deltaY === undefined || r.deltaZ === undefined)) {
-                r.deltaX = r.ep2.x - r.ep1.x;
-                r.deltaY = r.ep2.y - r.ep1.y;
-                r.deltaZ = r.ep2.z - r.ep1.z;
-                r._modified = r._modified || {};
-                r._modified.deltaX = "Calc";
-                updatedItems.delta++;
-            }
-
-            // Calculate LEN/AXIS
-            if (r.ep1 && r.ep2) {
-                if (r.len1 === undefined) {
-                    r.len1 = dist(r.ep1, r.ep2);
-                    r.axis1 = getAxis(r.ep1, r.ep2);
-                    r._modified = r._modified || {};
-                    r._modified.len1 = "Calc";
-                    updatedItems.len++;
-                }
-            }
-            if (t === "TEE" && r.cp && r.bp) {
-                if (r.brlen === undefined) {
-                    r.brlen = dist(r.cp, r.bp);
-                    r._modified = r._modified || {};
-                    r._modified.brlen = "Calc";
-                    updatedItems.len++;
-                }
-            }
-            if (t === "BEND" && r.ep1 && r.ep2 && r.cp) {
-                 if (r.len1 === undefined) { r.len1 = dist(r.cp, r.ep1); r.axis1 = getAxis(r.cp, r.ep1); r._modified = r._modified || {}; r._modified.len1 = "Calc"; updatedItems.len++; }
-                 if (r.len2 === undefined) { r.len2 = dist(r.cp, r.ep2); r.axis2 = getAxis(r.cp, r.ep2); r._modified = r._modified || {}; r._modified.len2 = "Calc"; updatedItems.len++; }
-            }
-
-            // Pointers
-            if (t === "BEND") {
-                if (!r.bendPtr) { r.bendPtr = ++bendPtr; r._modified = r._modified || {}; r._modified.bendPtr = "Calc"; updatedItems.ptr++; }
-            } else if (t === "FLANGE" || t === "VALVE") {
-                if (!r.rigidPtr) { r.rigidPtr = ++rigidPtr; r._modified = r._modified || {}; r._modified.rigidPtr = "Calc"; updatedItems.ptr++; }
-            } else if (t === "TEE" || t === "OLET") {
-                if (!r.intPtr) { r.intPtr = ++intPtr; r._modified = r._modified || {}; r._modified.intPtr = "Calc"; updatedItems.ptr++; }
-            }
-
-            // Dimensions lookup (mocked or fallback to ca data)
-            if (!r.diameter && r.bore) {
-                r.diameter = r.bore; // basic approx
-                r._modified = r._modified || {};
-                r._modified.diameter = "Calc";
-            }
-
-            return r;
-       });
-       if (stage === "1") dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
-       if (stage === "2") dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
-       if (stage === "3") dispatch({ type: "SET_STAGE_3_DATA", payload: updatedTable });
-
-       // Trigger a sync so StatusBar knows table changed if needed
-       if (stage === "2") window.dispatchEvent(new CustomEvent('zustand-force-sync'));
-
-       const alertLines = [];
-       if (updatedItems.bore > 0) alertLines.push(`Bores: ${updatedItems.bore}`);
-       if (updatedItems.boreFb > 0) alertLines.push(`Pipe Fallbacks: ${updatedItems.boreFb}`);
-       if (updatedItems.cp > 0) alertLines.push(`TEE CPs: ${updatedItems.cp}`);
-       if (updatedItems.delta > 0) alertLines.push(`Deltas: ${updatedItems.delta}`);
-       if (updatedItems.len > 0) alertLines.push(`Lengths/Axis: ${updatedItems.len}`);
-       if (updatedItems.ptr > 0) alertLines.push(`Ptrs: ${updatedItems.ptr}`);
-
-       const msg = alertLines.length > 0 ? `Missing Geo Check: Calculated ${alertLines.join(', ')}` : "Missing Geo Check: No missing geometry found.";
-       dispatch({ type: "SET_STATUS_MESSAGE", payload: msg });
-       setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 5000);
-  };
-
-  const handlePullStage1 = () => {
-      // Pulls Data Table from Stage 1 into Stage 2 minus fixingAction
-      const stage1Data = state.dataTable.map(r => {
-          const newRow = { ...r };
-          delete newRow.fixingAction;
-          delete newRow.fixingActionTier;
-          delete newRow.fixingActionRuleId;
-          delete newRow._fixApproved;
-          delete newRow._passApplied;
-          return newRow;
-      });
-      dispatch({ type: "SET_STAGE_2_DATA", payload: stage1Data });
-      dispatch({ type: "SET_STATUS_MESSAGE", payload: "Successfully pulled Stage 1 data into Stage 2." });
-      setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 5000);
-  };
-
-  const handleSyntaxFix = () => {
-      let capsFixed = 0;
-      let zeroFixed = 0;
-
-      const updatedTable = dataTable.map(r => {
-          const newRow = { ...r };
-          if (newRow.type && newRow.type !== newRow.type.toUpperCase().trim()) {
-              newRow.type = newRow.type.toUpperCase().trim();
-              capsFixed++;
-          }
-          if (newRow.skey && newRow.skey !== newRow.skey.toUpperCase().trim()) {
-              newRow.skey = newRow.skey.toUpperCase().trim();
-              capsFixed++;
-          }
-
-          const isZero = (pt) => pt && pt.x === 0 && pt.y === 0 && pt.z === 0;
-          if (isZero(newRow.ep1)) { newRow.ep1 = null; zeroFixed++; }
-          if (isZero(newRow.ep2)) { newRow.ep2 = null; zeroFixed++; }
-          if (isZero(newRow.cp)) { newRow.cp = null; zeroFixed++; }
-          if (isZero(newRow.bp)) { newRow.bp = null; zeroFixed++; }
-          return newRow;
-      });
-      dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
-      dispatch({ type: "SET_STATUS_MESSAGE", payload: `Syntax Fix Complete: Caps Fixed (${capsFixed}), (0,0,0) cleared (${zeroFixed})` });
-      setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 5000);
-  };
-
-  const handleValidateSyntax = () => {
-      const logger = createLogger();
-      const results = runValidationChecklist(dataTable, state.config, logger, stage);
-
-      logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
-
-      const ruleCounts = {};
-      let updatedTable = [...dataTable];
-      logger.getLog().forEach(entry => {
-        if (entry.ruleId) {
-             ruleCounts[entry.ruleId] = (ruleCounts[entry.ruleId] || 0) + 1;
-        }
-        if (entry.row && entry.tier) {
-          const row = updatedTable.find(r => r._rowIndex === entry.row);
-          if (row) {
-             // Preserve existing proposals if any, otherwise set validation message
-             if (!row.fixingAction || row.fixingAction.includes('ERROR') || row.fixingAction.includes('WARNING')) {
-                row.fixingAction = entry.message;
-                row.fixingActionTier = entry.tier;
-                row.fixingActionRuleId = entry.ruleId;
-             }
-          }
-        }
-      });
-
-      if (stage === "1") dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
-      if (stage === "2") dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
-      if (stage === "3") dispatch({ type: "SET_STAGE_3_DATA", payload: updatedTable });
-
-      const summaryText = Object.entries(ruleCounts).map(([rule, count]) => `${rule}(${count})`).join(', ');
-      dispatch({ type: "SET_STATUS_MESSAGE", payload: `Validation Complete: ${results.errorCount} Errors, ${results.warnCount} Warnings. Rules: ${summaryText || 'None'}` });
-      setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 5000);
-  };
-
-  const fixingActionStats = React.useMemo(() => {
-    let approvedP1 = 0, rejectedP1 = 0, pendingP1 = 0;
-    let approvedP2 = 0, rejectedP2 = 0, pendingP2 = 0;
-    let errPass1 = 0, warnPass1 = 0;
-    let errPass2 = 0, warnPass2 = 0;
-
-    if (dataTable) {
-        dataTable.forEach(r => {
-          if (r.fixingAction) {
-            const isP2 = r._passApplied === 2 || r._currentPass === 2 || r.fixingAction.includes('[2nd Pass]');
-            const isErr = r.fixingActionTier === 4 || r.fixingAction.includes('ERROR');
-            const isWarn = r.fixingActionTier === 3 || r.fixingAction.includes('WARNING');
-
-            // Check Validation stats
-            if (isP2) {
-                if (isErr) errPass2++;
-                if (isWarn) warnPass2++;
-            } else {
-                if (isErr) errPass1++;
-                if (isWarn) warnPass1++;
-            }
-
-            // Check Action stats
-            if (!isErr && !isWarn) {
-                if (isP2) {
-                    if (r._fixApproved === true || r._passApplied === 2) approvedP2++;
-                    else if (r._fixApproved === false) rejectedP2++;
-                    else pendingP2++;
-                } else {
-                    if (r._fixApproved === true || r._passApplied === 1) approvedP1++;
-                    else if (r._fixApproved === false) rejectedP1++;
-                    else pendingP1++;
-                }
-            }
-          }
-        });
-    }
-    return { approvedP1, rejectedP1, pendingP1, errPass1, warnPass1, approvedP2, rejectedP2, pendingP2, errPass2, warnPass2 };
-  }, [state.dataTable]);
-
-  const filteredDataTable = React.useMemo(() => {
-     if (!dataTable) return [];
-     if (filterAction === 'ALL') return dataTable;
-     if (filterAction === 'ERRORS_WARNINGS') return dataTable.filter(r => r.fixingAction && (r.fixingAction.includes('ERROR') || r.fixingAction.includes('WARNING')));
-     if (filterAction === 'PROPOSALS') return dataTable.filter(r => r.fixingAction && !r.fixingAction.includes('ERROR') && !r.fixingAction.includes('WARNING'));
-     if (filterAction === 'PENDING') return dataTable.filter(r => r.fixingAction && r._fixApproved === undefined);
-     if (filterAction === 'APPROVED') return dataTable.filter(r => r._fixApproved === true);
-     if (filterAction === 'REJECTED') return dataTable.filter(r => r._fixApproved === false);
-     if (filterAction === 'HAS_FIXING_ACTION') return dataTable.filter(r => r.fixingAction);
-     return dataTable;
-  }, [dataTable, filterAction]);
-
-  if (stage === "3" && (!currentData || currentData.length === 0)) {
-      return (
-          <div className="flex flex-col items-center justify-center h-[calc(100vh-12rem)] text-slate-500 p-8">
-              <h2 className="text-xl font-bold mb-2 text-slate-700">Stage 3: Final Checking</h2>
-              <p className="max-w-xl text-center">This is the final validation stage where VXX syntax rules and RXX topological rules are executed one last time before export to ensure no regressions were introduced during Stage 2 fixing.</p>
-              <button onClick={() => {
-                  dispatch({ type: "SET_STAGE_3_DATA", payload: state.stage2Data });
-              }} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded font-medium shadow">
-                  Pull Data from Stage 2
-              </button>
-          </div>
-      );
-  }
+export function DataTableTab() {
+  const { state } = useAppContext();
+  const { dataTable } = state;
 
   if (!dataTable || dataTable.length === 0) {
-    if (stage === "2") {
-       return (
-          <div className="flex flex-col items-center justify-center h-[calc(100vh-12rem)] text-slate-500 p-8">
-              <h2 className="text-xl font-bold mb-2 text-slate-700">Stage 2: Topology & Fixing</h2>
-              <p className="max-w-xl text-center mb-6">Data for Stage 2 (Topology & Fixing) must be explicitly pulled from Stage 1 after syntax checks are complete.</p>
-              <button onClick={handlePullStage1} disabled={!state.dataTable || state.dataTable.length === 0} className="mt-4 px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded font-bold shadow disabled:opacity-50">
-                  Pull Data from Stage 1
-              </button>
-              {(!state.dataTable || state.dataTable.length === 0) && <p className="text-xs mt-2 text-red-500">Stage 1 has no data.</p>}
-          </div>
-       );
-    }
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-12rem)] text-slate-500">
         <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-4 text-slate-400">
@@ -348,6 +21,26 @@ export function DataTableTab({ stage = "1" }) {
     );
   }
 
+
+  const handleApprove = (rowIndex, approve) => {
+      const updatedTable = [...state.dataTable];
+      const rowIdx = updatedTable.findIndex(r => r._rowIndex === rowIndex);
+      if (rowIdx > -1) {
+          updatedTable[rowIdx] = { ...updatedTable[rowIdx], _fixApproved: approve };
+          dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
+      }
+  };
+
+  const handleAutoApproveAll = () => {
+      const updatedTable = state.dataTable.map(r => {
+          if (r.fixingActionTier && r.fixingActionTier <= 2) {
+              return { ...r, _fixApproved: true };
+          }
+          return r;
+      });
+      dispatch({ type: "SET_DATA_TABLE", payload: updatedTable });
+  };
+
   const renderFixingAction = (row) => {
     if (!row.fixingAction) return <span className="text-slate-400">—</span>;
 
@@ -357,58 +50,58 @@ export function DataTableTab({ stage = "1" }) {
       3: { bg: "bg-orange-50", text: "text-orange-800", border: "border-orange-500", label: "REVIEW T3" },
       4: { bg: "bg-red-50", text: "text-red-800", border: "border-red-500", label: "ERROR T4" },
     };
+    const colors = tierColors[row.fixingActionTier] || tierColors[3];
 
-    let colors = tierColors[row.fixingActionTier] || tierColors[3];
-    if (row._passApplied > 0) {
-      colors = { bg: "bg-green-100", text: "text-green-900", border: "border-green-600", label: "FIX APPLIED" };
-    }
+    const isPass2 = row._proposedPass === 2 || row.fixingAction.includes('[Pass 2]');
+    const passLabel = isPass2 ? "[2nd Pass]" : "[1st Pass]";
 
-    // Attempt to split into validation warning and proposal/action.
-    // E.g., Validator puts "[V2] ERROR...", SmartFixer appends action.
-    let validationMsg = row.fixingActionOriginalError || "";
-    let actionMsg = row.fixingAction;
+    // Extract dropped suggestion score if present to display near Reject button
+    const droppedMatch = row.fixingAction.match(/Dropped suggestion:?\s*(Score.*?)(?:\s+for|$)/);
+    const scoreText = droppedMatch ? `(${droppedMatch[1]})` : "";
 
-    if (!row.fixingActionOriginalError && (row.fixingAction.includes('ERROR') || row.fixingAction.includes('WARNING'))) {
-         // It's primarily a validation message or it hasn't been split yet
-         if (row.fixingAction.includes('—')) {
-             const parts = row.fixingAction.split('—');
-             validationMsg = parts[0].trim();
-             actionMsg = parts.slice(1).join('—').trim();
-         } else {
-             validationMsg = row.fixingAction;
-             actionMsg = "";
-         }
-    }
+    // Clean up fixingAction to remove the [Pass X] and Dropped suggestion parts from main text
+    let displayAction = row.fixingAction
+        .replace(/\[Pass \d+\]\s*/gi, '')
+        .replace(/\s*Dropped suggestion:?.*$/i, '');
 
-    const passPrefix = row._passApplied === 2 ? "[2nd Pass]" : "[1st Pass]";
+    // The _passApplied field denotes that a fix has actually been applied to the table.
+    // If we're previewing a fix (not applied yet), we show the buttons.
+    const showActionButtons = row._passApplied === undefined && !row._isPassiveFix;
 
     return (
-      <div className={`${colors.bg} ${colors.text} border-l-4 ${colors.border} p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap rounded-r shadow-sm min-w-[280px]`}>
-        <div className="font-semibold mb-1">
-             {stage !== "1" && <span className="text-slate-600 mr-1">{passPrefix}</span>}
-             {validationMsg}
+      <div className={`${colors.bg} ${colors.text} border-l-4 ${colors.border} p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap rounded-r shadow-sm min-w-[320px]`}>
+        <div className="font-bold text-slate-700 mb-1">{passLabel}</div>
+        <div className="mb-1">
+            <span className={`inline-block ${colors.border.replace('border-', 'bg-')} text-white px-1.5 py-0.5 rounded text-[10px] font-bold mr-2`}>
+              {colors.label}
+            </span>
+            <span className="font-semibold">{row.fixingActionRuleId || '[Issue]'}</span>
         </div>
-        {actionMsg && (
-            <>
-                <div className={`mt-1 pl-2 border-l-2 ${row._passApplied > 0 ? 'border-green-400 text-green-800' : 'border-amber-400 text-amber-800'}`}>
-                     <span className="font-bold mr-1">{row._passApplied > 0 ? "[Action Taken]" : "[Proposal]"}</span>
-                     <span className={row._fixApproved === false ? "line-through opacity-70" : ""}>{actionMsg}</span>
-                     {row._passApplied === undefined && row._fixApproved === true && !row._isPassiveFix && (
-                        <div className="text-[9px] text-blue-600 mt-1 italic">(Click 'Apply Fixes ✓' in footer to mutate geometry)</div>
-                     )}
-                </div>
-                {row._passApplied === undefined && !row._isPassiveFix && (
-                     <div className="flex space-x-2 mt-2 items-center">
-                        <button onClick={() => handleApprove(row._rowIndex, true)} className={`px-2 py-1 text-xs rounded shadow-sm transition-colors ${row._fixApproved === true ? 'bg-green-100 text-green-800 border border-green-400 font-semibold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'}`}>✓ Approve</button>
-                        <button onClick={() => handleApprove(row._rowIndex, false)} className={`px-2 py-1 text-xs rounded shadow-sm transition-colors ${row._fixApproved === false ? 'bg-slate-200 text-slate-500 border border-slate-400 font-semibold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'}`}>✗ Reject</button>
-                        {row.fixingAction && row.fixingAction.includes('Dropped suggestion') && (
-                            <span className="text-[10px] text-orange-600 ml-2 font-medium italic whitespace-nowrap" title="This suggestion scored too low and was dropped">
-                                Dropped suggestion
-                            </span>
-                        )}
-                    </div>
+        <div className="mb-2">
+             <span className="font-semibold text-slate-600 mr-1">[Proposal]</span>
+             {displayAction}
+        </div>
+
+        {showActionButtons && (
+             <div className="flex space-x-2 mt-2 items-center">
+                {row._fixApproved === true ? (
+                    <span className="px-2 py-1 text-xs rounded font-semibold bg-green-100 text-green-800 border border-green-400">✓ Approved</span>
+                ) : (
+                    <button onClick={() => handleApprove(row._rowIndex, true)} className="px-2 py-1 text-xs rounded shadow-sm transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300">✓ Approve</button>
                 )}
-            </>
+
+                {row._fixApproved === false ? (
+                    <span className="px-2 py-1 text-xs rounded font-semibold bg-red-100 text-red-800 border border-red-400">✗ Rejected</span>
+                ) : (
+                    <button onClick={() => handleApprove(row._rowIndex, false)} className="px-2 py-1 text-xs rounded shadow-sm transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300">✗ Reject</button>
+                )}
+
+                {scoreText && (
+                    <span className="text-[10px] text-orange-600 ml-2 font-medium italic whitespace-nowrap" title="This suggestion scored too low and was dropped">
+                        {scoreText}
+                    </span>
+                )}
+             </div>
         )}
       </div>
     );
@@ -428,125 +121,11 @@ export function DataTableTab({ stage = "1" }) {
 
   return (
     <>
-      <div className="mb-2 flex flex-col xl:flex-row justify-between xl:items-end gap-2">
-        <div className="flex flex-col gap-1 text-xs font-medium w-full xl:w-auto">
-            {stage !== "1" && (
-                <>
-                    <div className="flex flex-wrap gap-2 mb-1">
-                        <div className="text-slate-600 bg-slate-100 px-3 py-1 rounded border border-slate-200 shadow-sm flex items-center">
-                            Validation [Pass 1]:
-                            <span className="text-red-600 ml-2 font-bold">Errors({fixingActionStats.errPass1})</span>,
-                            <span className="text-orange-500 ml-2 font-bold">Warnings({fixingActionStats.warnPass1})</span>
-                        </div>
-                        <div className="text-slate-600 bg-indigo-50 px-3 py-1 rounded border border-indigo-200 shadow-sm flex items-center">
-                            Smart Fixing Action [Pass 1]:
-                            <span className="text-green-600 ml-2 font-bold">Approved({fixingActionStats.approvedP1})</span>,
-                            <span className="text-slate-500 ml-2 font-bold">Rejected({fixingActionStats.rejectedP1})</span>,
-                            <span className="text-amber-600 ml-2 font-bold">Pending({fixingActionStats.pendingP1})</span>
-                        </div>
-                    </div>
-                    {(fixingActionStats.errPass2 > 0 || fixingActionStats.warnPass2 > 0 || fixingActionStats.approvedP2 > 0 || fixingActionStats.pendingP2 > 0) && (
-                        <div className="flex flex-wrap gap-2">
-                            <div className="text-slate-600 bg-slate-100 px-3 py-1 rounded border border-slate-200 shadow-sm flex items-center">
-                                Validation [Pass 2]:
-                                <span className="text-red-600 ml-2 font-bold">Errors({fixingActionStats.errPass2})</span>,
-                                <span className="text-orange-500 ml-2 font-bold">Warnings({fixingActionStats.warnPass2})</span>
-                            </div>
-                            <div className="text-slate-600 bg-purple-50 px-3 py-1 rounded border border-purple-200 shadow-sm flex items-center">
-                                Smart Fixing Action [Pass 2]:
-                                <span className="text-green-600 ml-2 font-bold">Approved({fixingActionStats.approvedP2})</span>,
-                                <span className="text-slate-500 ml-2 font-bold">Rejected({fixingActionStats.rejectedP2})</span>,
-                                <span className="text-amber-600 ml-2 font-bold">Pending({fixingActionStats.pendingP2})</span>
-                            </div>
-                        </div>
-                    )}
-                </>
-            )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 bg-white px-2 py-1 rounded border border-slate-300 shadow-sm">
-            {stage === "2" && (
-                <button onClick={handlePullStage1} className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-xs font-bold border border-amber-200 transition-all shadow-sm mr-2 whitespace-nowrap">
-                    📥 Pull from Stage 1
-                </button>
-            )}
-
-            {stage !== "1" && (
-                <div className="flex items-center space-x-2 border-r border-slate-200 pr-3 mr-1">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">FILTER:</span>
-                    <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="text-sm bg-slate-50 text-slate-700 border-none outline-none cursor-pointer py-1 px-1 rounded font-medium">
-                        <option value="ALL">All Rows</option>
-                        <option value="HAS_FIXING_ACTION">Has Fixing Action</option>
-                        <option value="ERRORS_WARNINGS">Errors & Warnings</option>
-                        <option value="PROPOSALS">Smart Fix Proposals</option>
-                        <option value="PENDING">Pending Approval</option>
-                        <option value="APPROVED">Approved</option>
-                        <option value="REJECTED">Rejected</option>
-                    </select>
-                </div>
-            )}
-
-            <div className="flex items-center space-x-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-1 hidden md:inline-block">Tools:</span>
-
-                {stage === "1" && (
-                    <>
-                        <button onClick={handleCalculateMissingGeometry} className="px-2.5 py-1 bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-700 rounded text-xs font-semibold border border-transparent hover:border-blue-200 transition-all shadow-sm mr-1" title="Calculate missing bores, midpoints, and vectors">
-                            <span className="mr-1">📐</span>Calc Missing Geo
-                        </button>
-                        <button onClick={handleValidateSyntax} className="px-2.5 py-1 bg-white hover:bg-teal-50 text-slate-600 hover:text-teal-700 rounded text-xs font-semibold border border-transparent hover:border-teal-200 transition-all shadow-sm mr-1" title="Run strict Data Table validation checks">
-                            <span className="mr-1">🛡️</span>Check Syntax
-                        </button>
-                        <button onClick={handleSyntaxFix} className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded text-xs font-semibold border border-transparent hover:border-indigo-200 transition-all shadow-sm" title="Standardize strings and fix basic syntax errors">
-                            <span className="mr-1">🔧</span>Syntax Fix
-                        </button>
-                    </>
-                )}
-
-                {(stage === "2" || stage === "3") && (
-                    <>
-                        <button disabled className="px-2.5 py-1 bg-slate-50 text-slate-400 rounded text-xs font-semibold border border-slate-200 shadow-sm opacity-50 cursor-not-allowed" title="Run strict Data Table validation checks">
-                            <span className="mr-1 opacity-50">🛡️</span>Validate Rules
-                        </button>
-                        <button disabled className="px-2.5 py-1 bg-slate-50 text-slate-400 rounded text-xs font-semibold border border-slate-200 shadow-sm opacity-50 cursor-not-allowed" title="Acknowledge and dismiss all current warnings">
-                            <span className="mr-1 opacity-50">👁️‍🗨️</span>Ignore Warnings
-                        </button>
-                        <button onClick={handleAutoApproveAll} className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold border border-indigo-200 transition-all shadow-sm ml-2" title="Approve all Tier 1/2 automated fixes">
-                            <span className="mr-1">⚡</span>Auto Approve (&lt;25mm)
-                        </button>
-                    </>
-                )}
-
-                {stage === "3" && (
-                    <>
-                        <button onClick={async () => {
-                            try {
-                                await exportToExcel(dataTable);
-                                dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Exported Data Table to Excel." }});
-                            } catch (err) {
-                                dispatch({ type: "SET_STATUS_MESSAGE", payload: "Error exporting Excel: " + err.message });
-                                setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 6000);
-                            }
-                        }} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded text-xs font-bold border border-slate-900 transition-all shadow-sm ml-2">
-                            Export Data Table ↓
-                        </button>
-                        <button onClick={() => {
-                            const text = generatePCFText(dataTable, state.config);
-                            const blob = new Blob([text], { type: 'text/plain' });
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = 'export.pcf';
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Exported PCF file." }});
-                        }} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded text-xs font-bold border border-slate-900 transition-all shadow-sm ml-1">
-                            Export PCF ↓
-                        </button>
-                    </>
-                )}
-            </div>
-        </div>
-      </div>
+      <div className="mb-2 flex justify-end">
+      <button onClick={handleAutoApproveAll} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded text-sm font-medium border border-indigo-200 shadow-sm transition-colors">
+          Auto Approve First Pass (&lt; 25mm)
+      </button>
+  </div>
   <div className="overflow-auto h-[calc(100vh-14rem)] border rounded shadow-sm bg-white relative">
       <table className="min-w-max divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-100 sticky top-0 z-20 shadow-sm whitespace-nowrap">
@@ -600,15 +179,11 @@ export function DataTableTab({ stage = "1" }) {
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-slate-200">
-          {filteredDataTable.map((row) => {
-            const isDeleted = row._isDeleted || (row.fixingAction && row.fixingAction.includes('DELETE') && row._passApplied > 0);
-            const rowClass = isDeleted ? 'bg-red-50/50 opacity-60 line-through' : 'bg-white hover:bg-slate-50 transition-colors';
-
-            return (
-            <tr key={row._rowIndex} className={`${rowClass} whitespace-nowrap`}>
-              <td className={`px-3 py-2 text-slate-500 border-r border-slate-200 sticky left-0 z-10 font-mono ${isDeleted ? 'bg-red-50' : 'bg-white'}`}>{row._rowIndex}</td>
-              <td className={`px-3 py-2 border-r border-slate-200 sticky left-[60px] z-10 font-mono ${getCellClass(row, 'csvSeqNo')} ${isDeleted ? 'bg-red-50' : 'bg-white'}`}>{row.csvSeqNo || '—'}</td>
-              <td className={`px-3 py-2 font-medium text-slate-900 border-r border-slate-300 sticky left-[160px] z-10 ${isDeleted ? 'bg-red-50' : 'bg-white'}`}>{row.type}</td>
+          {dataTable.map((row) => (
+            <tr key={row._rowIndex} className="hover:bg-slate-50 transition-colors whitespace-nowrap">
+              <td className="px-3 py-2 text-slate-500 border-r border-slate-200 sticky left-0 z-10 bg-white font-mono">{row._rowIndex}</td>
+              <td className={`px-3 py-2 border-r border-slate-200 sticky left-[60px] z-10 bg-white font-mono ${getCellClass(row, 'csvSeqNo')}`}>{row.csvSeqNo || '—'}</td>
+              <td className="px-3 py-2 font-medium text-slate-900 border-r border-slate-300 sticky left-[160px] z-10 bg-white">{row.type}</td>
               <td className="px-3 py-2 text-slate-500 border-r border-slate-200 truncate max-w-[200px]" title={row.text}>{row.text || '—'}</td>
               <td className="px-3 py-2 text-slate-500 border-r border-slate-200">{row.pipelineRef || '—'}</td>
               <td className={`px-3 py-2 border-r border-slate-200 ${getCellClass(row, 'refNo')}`}>{row.refNo || '—'}</td>
@@ -646,7 +221,7 @@ export function DataTableTab({ stage = "1" }) {
                   <td key={`ca${n}`} className="px-3 py-2 text-slate-500 border-r border-slate-200">{row.ca?.[n] || '—'}</td>
               ))}
             </tr>
-          )})}
+          ))}
         </tbody>
           </table>
     </div>

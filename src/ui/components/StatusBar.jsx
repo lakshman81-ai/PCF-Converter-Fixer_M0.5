@@ -3,99 +3,76 @@ import { useAppContext } from '../../store/AppContext';
 import { runSmartFix } from '../../engine/Orchestrator';
 import { applyFixes } from '../../engine/FixApplicator';
 import { createLogger } from '../../utils/Logger';
+import { exportToExcel, generatePCFText } from '../../utils/ImportExport';
 import { runValidationChecklist } from '../../engine/Validator';
 import { runDataProcessor } from '../../engine/DataProcessor';
 
 import { PcfTopologyGraph2, applyApprovedMutations } from '../../engine/PcfTopologyGraph2';
-import { useStore } from '../../store/useStore';
 
-export function StatusBar({ activeTab, activeStage }) {
+export function StatusBar() {
   const [showModal, setShowModal] = React.useState(false);
   const [runGroup, setRunGroup] = React.useState('group1');
-  const [isStatusExpanded, setIsStatusExpanded] = React.useState(false);
   const { state, dispatch } = useAppContext();
-  const setZustandData = useStore(state => state.setDataTable);
-  const setZustandProposals = useStore(state => state.setProposals);
-
-  React.useEffect(() => {
-    const handleSync = (e) => {
-        const { rowIndex, status } = e.detail;
-        let updatedTable = state.stage2Data.map(r =>
-            r._rowIndex === rowIndex ? { ...r, _fixApproved: status } : r
-        );
-
-        // If approved via 3D Canvas, immediately apply fixes for that row
-        if (status === true && state.smartFix.chains) {
-            const logger = createLogger();
-            // Re-run applicator purely for approved rows
-            const result = applyFixes(updatedTable, state.smartFix.chains, state.config, logger);
-            updatedTable = result.updatedTable;
-            setZustandData(updatedTable); // Ensure 3D updates immediately
-        }
-
-        dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
-    };
-    window.addEventListener('zustand-fix-status-changed', handleSync);
-    return () => window.removeEventListener('zustand-fix-status-changed', handleSync);
-  }, [state.stage2Data, state.smartFix.chains, state.config, dispatch, setZustandData]);
 
   const handleSmartFix = () => {
     dispatch({ type: "SET_SMART_FIX_STATUS", status: "running" });
     const logger = createLogger();
-    const result = runSmartFix(state.stage2Data, state.config, logger);
-
-    let errorFixes = 0;
-    let warnFixes = 0;
+    const result = runSmartFix(state.dataTable, state.config, logger);
 
     // Save logs to state
-    logger.getLog().forEach(entry => {
-         dispatch({ type: "ADD_LOG", payload: entry });
-         if (entry.tier && entry.tier <= 2) errorFixes++;
-         if (entry.tier && entry.tier === 3) warnFixes++;
-    });
+    logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
 
     dispatch({ type: "SMART_FIX_COMPLETE", payload: result });
-    dispatch({ type: "SET_STATUS_MESSAGE", payload: `Analysis Complete: ${errorFixes} Auto-Fixes (T1/2), ${warnFixes} Warnings (T3)` });
-    setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 6000);
   };
 
   const handleApplyFixes = () => {
     dispatch({ type: "SET_SMART_FIX_STATUS", status: "applying" });
     const logger = createLogger();
-
-    // For Group 2 / proposals (from PcfTopologyGraph2), applying fixes means mutating the geometries that were approved.
-    let tableToProcess = state.stage2Data;
-    if (useStore.getState().proposals.length > 0) {
-        tableToProcess = applyApprovedMutations(tableToProcess, useStore.getState().proposals, logger);
-    }
-
-    const result = applyFixes(tableToProcess, state.smartFix.chains, state.config, logger);
+    const result = applyFixes(state.dataTable, state.smartFix.chains, state.config, logger);
 
     logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
 
-    setZustandData(result.updatedTable);
     dispatch({ type: "FIXES_APPLIED", payload: result });
   };
 
-  const isDataLoaded = state.stage2Data && state.stage2Data.length > 0;
+  const isDataLoaded = state.dataTable.length > 0;
+  const isPreviewing = state.smartFix.status === "previewing";
   const isRunning = state.smartFix.status === "running";
   const isApplying = state.smartFix.status === "applying";
-  const isSecondPassReady = (state.smartFix.status === "applied" || state.smartFix.status === "previewing") && state.config.pteMode?.autoMultiPassMode;
-
-  // Apply Fixes should be enabled if any row is approved and we're not currently applying
-  const hasApprovedFixes = state.stage2Data && state.stage2Data.some(r => r._fixApproved === true);
-  const canApplyFixes = hasApprovedFixes && !isApplying;
+  const passNum = state.smartFix.pass || 1;
+  const isSecondPassReady = state.smartFix.status === "applied" && state.config.pteMode?.autoMultiPassMode;
 
   const handleSecondPass = () => {
     dispatch({ type: "SET_SMART_FIX_STATUS", status: "running" });
     const logger = createLogger();
-    // Before running we flag the table that it's pass 2
-    let pass2Table = state.stage2Data.map(r => ({ ...r, _currentPass: 2, _passApplied: r._passApplied || 2 }));
-    const result = runSmartFix(pass2Table, { ...state.config, currentPass: 2 }, logger);
+
+    const result = runSmartFix(state.dataTable, { ...state.config, currentPass: 2 }, logger);
     logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
-    // Update data table explicitly so UI picks up the pass 2 prefixes
-    dispatch({ type: "SET_STAGE_2_DATA", payload: pass2Table });
+
+    // Engine modifies rows with proposals in-place but we need to ensure the dataTable in state is updated
+    dispatch({ type: "SET_DATA_TABLE", payload: [...state.dataTable] });
     dispatch({ type: "SMART_FIX_COMPLETE", payload: { ...result, pass: 2 } });
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      await exportToExcel(state.dataTable);
+      dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Exported Data Table to Excel." }});
+    } catch (err) {
+      alert("Error exporting Excel: " + err.message);
+    }
+  };
+
+  const handleExportPCF = () => {
+    const text = generatePCFText(state.dataTable, state.config);
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'export.pcf';
+    a.click();
+    window.URL.revokeObjectURL(url);
+    dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Exported PCF file." }});
   };
 
   const d = new Date();
@@ -104,14 +81,12 @@ export function StatusBar({ activeTab, activeStage }) {
   const handleExecute = () => {
       setShowModal(false);
       const logger = createLogger();
-      // Only process geometry parsing and V15 validation (Stage 2) here
-      let processedTable = runDataProcessor(state.stage2Data, state.config, logger);
-      runValidationChecklist(processedTable, state.config, logger, "2");
+      let processedTable = runDataProcessor(state.dataTable, state.config, logger);
+      runValidationChecklist(processedTable, state.config, logger);
 
       if (runGroup === 'group2') {
           // Pass data table through PcfTopologyGraph_2
           const { proposals } = PcfTopologyGraph2(processedTable, state.config, logger);
-          setZustandProposals(proposals);
           // Auto-apply logic or just attach them for the UI
           processedTable = applyApprovedMutations(processedTable, proposals, logger);
       }
@@ -128,10 +103,8 @@ export function StatusBar({ activeTab, activeStage }) {
           }
         }
       });
-      dispatch({ type: "SET_STAGE_2_DATA", payload: processedTable });
-      setZustandData(processedTable);
-      dispatch({ type: "SET_STATUS_MESSAGE", payload: "Processing & Validation complete!" });
-      setTimeout(() => dispatch({ type: "SET_STATUS_MESSAGE", payload: null }), 5000);
+      dispatch({ type: "SET_DATA_TABLE", payload: processedTable });
+      alert("Processing & Validation complete! Check Debug tab and Data Table for results.");
   };
 
   return (
@@ -167,64 +140,20 @@ export function StatusBar({ activeTab, activeStage }) {
         </div>
       )}
 
-    <div className="fixed bottom-0 left-0 right-0 h-12 bg-slate-800 text-white flex items-center justify-between px-4 text-sm z-50 shadow-lg">
-      <div className="flex items-center space-x-2 relative h-full">
-        {/* Collapsible Status Container */}
-        <div
-            className={`absolute bottom-0 left-0 bg-slate-700 border-t border-r border-slate-600 rounded-tr-lg shadow-xl transition-all duration-300 ease-in-out flex flex-col ${isStatusExpanded ? 'h-48 w-[500px] p-4' : 'h-12 w-[300px] px-3 py-0 flex-row items-center cursor-pointer hover:bg-slate-600'}`}
-            onClick={() => !isStatusExpanded && setIsStatusExpanded(true)}
-        >
-            <div className="flex justify-between items-center w-full mb-2">
-                <span className={`font-mono text-slate-300 ${isStatusExpanded ? 'text-sm' : 'text-xs truncate'}`}>
-                    {state.statusMessage || "Ready"}
-                </span>
-                {isStatusExpanded && (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setIsStatusExpanded(false); }}
-                        className="text-slate-400 hover:text-white"
-                    >
-                        ✕
-                    </button>
-                )}
-            </div>
-            {isStatusExpanded && (
-                <div className="flex-1 overflow-y-auto mt-2 text-xs text-slate-400 space-y-1">
-                    {/* If we had a message history, we'd map it here. For now just show the current message wrapped. */}
-                    <div className="bg-slate-800/50 p-2 rounded whitespace-pre-wrap font-mono">
-                        {state.statusMessage || "System is idle."}
-                    </div>
-                </div>
-            )}
-        </div>
-
-        {/* Push content past the status box when collapsed */}
-        <div className="ml-[320px] flex items-center space-x-2">
-        {(!state.dataTable || state.dataTable.length === 0) && (
-            <button
-                onClick={() => {
-                  const mockData = [
-                    { _rowIndex: 1, type: "PIPE", ep1: {x: 0, y: 0, z: 0}, ep2: {x: 1000, y: 0, z: 0}, bore: 100 },
-                    { _rowIndex: 2, type: "PIPE", ep1: {x: 1005, y: 0, z: 0}, ep2: {x: 2000, y: 0, z: 0}, bore: 100 },
-                    { _rowIndex: 3, type: "TEE", ep1: {x: 2000, y: 0, z: 0}, ep2: {x: 2300, y: 0, z: 0}, cp: {x: 2150, y: 0, z: 0}, bp: {x: 2150, y: 150, z: 0}, bore: 100, branchBore: 50 },
-                    { _rowIndex: 4, type: "PIPE", ep1: {x: 2300, y: 0, z: 0}, ep2: {x: 3000, y: 0, z: 0}, bore: 100 },
-                    { _rowIndex: 5, type: "PIPE", ep1: {x: 2980, y: 0, z: 0}, ep2: {x: 4000, y: 0, z: 0}, bore: 100 },
-                    { _rowIndex: 6, type: "PIPE", ep1: {x: 2150, y: 150, z: 0}, ep2: {x: 2150, y: 154, z: 0}, bore: 50 },
-                    { _rowIndex: 7, type: "VALVE", ep1: {x: 2150, y: 154, z: 0}, ep2: {x: 2150, y: 354, z: 0}, bore: 50, skey: "VBFL" },
-                  ];
-                  dispatch({ type: "SET_DATA_TABLE", payload: mockData });
-                  useStore.getState().setDataTable(mockData);
-                }}
-                className="px-2 py-1 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-300 rounded text-xs transition border border-indigo-700/50"
-            >
-              Load Mock Test Data
-            </button>
-        )}
-
+    <div className="fixed bottom-0 left-0 right-0 h-12 bg-slate-800 text-white flex items-center justify-between px-4 text-sm z-50">
+      <div className="flex items-center space-x-4">
+        <span className="text-slate-300">Ready</span>
+        <button onClick={handleExportExcel} disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
+          Export Data Table ↓
+        </button>
+        <button onClick={handleExportPCF} disabled={!isDataLoaded} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50">
+          Export PCF ↓
+        </button>
         <button
           onClick={() => {
             const logger = createLogger();
-            const processedTable = runDataProcessor(state.stage2Data, state.config, logger);
-            runValidationChecklist(processedTable, state.config, logger, "2"); // Pass "2" to isolate V15
+            const processedTable = runDataProcessor(state.dataTable, state.config, logger);
+            runValidationChecklist(processedTable, state.config, logger);
             logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
 
             logger.getLog().forEach(entry => {
@@ -237,66 +166,43 @@ export function StatusBar({ activeTab, activeStage }) {
                 }
               }
             });
-            dispatch({ type: "SET_STAGE_2_DATA", payload: processedTable });
-            setZustandData(processedTable);
+            dispatch({ type: "SET_DATA_TABLE", payload: processedTable });
 
             // intercept to show modal instead
             setShowModal(true);
           }}
           disabled={!isDataLoaded}
-          className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50 h-8 flex items-center"
+          className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50"
         >
-          Run Phase 1 Validator (Only Pipe filling/Trimming) ▶
+          Run Validator ▶
         </button>
-        </div>
       </div>
 
-      <div className="flex items-center space-x-2">
-        {/* Only show these action buttons if we are on Stage 2 Data Table, or the 3D Canvas */}
-        {(activeTab === 'canvas' || (activeTab === 'data' && activeStage === 2)) && (
-            <>
-                <button
-                  onClick={() => {
-                    dispatch({ type: "UNDO_FIXES" });
-                    // ensure Zustand syncs with the undone state
-                    if (state.history.length > 0) {
-                      const prevTable = state.history[state.history.length - 1];
-                      setZustandData(prevTable);
-                    }
-                  }}
-                  disabled={state.history.length === 0}
-                  className="px-4 py-1.5 bg-yellow-600 hover:bg-yellow-500 rounded font-medium disabled:opacity-50 transition-colors text-white h-full"
-                  title="Undo last applied fixes"
-                >
-                  ↶ Undo
-                </button>
+      <div className="flex items-center space-x-4">
+        <button
+          onClick={handleSmartFix}
+          disabled={!isDataLoaded || isRunning}
+          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded font-medium disabled:opacity-50 transition-colors"
+        >
+          {isRunning ? "Analyzing..." : "Smart Fix 🔧"}
+        </button>
 
-                <button
-                  onClick={handleSmartFix}
-                  disabled={!isDataLoaded || isRunning}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded font-medium disabled:opacity-50 transition-colors h-full"
-                >
-                  {isRunning ? "Analyzing..." : "Smart Fix 🔧"}
-                </button>
+        <button
+          onClick={handleApplyFixes}
+          disabled={!isPreviewing || isApplying}
+          className="px-4 py-1.5 bg-green-600 hover:bg-green-500 rounded font-medium disabled:opacity-50 transition-colors mr-2"
+        >
+          {isApplying ? "Applying..." : "Apply Fixes ✓"}
+        </button>
 
-                <button
-                  onClick={handleApplyFixes}
-                  disabled={!canApplyFixes}
-                  className="px-4 py-1.5 bg-green-600 hover:bg-green-500 rounded font-medium disabled:opacity-50 transition-colors h-full"
-                >
-                  {isApplying ? "Applying..." : "Apply Fixes ✓"}
-                </button>
-
-                <button
-                  onClick={handleSecondPass}
-                  disabled={!isSecondPassReady}
-                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 rounded font-medium disabled:opacity-50 transition-colors h-full"
-                  title="Run Second Pass on Non-Pipe components"
-                >
-                  🚀 Run Second Pass
-                </button>
-            </>
-        )}
+        <button
+          onClick={handleSecondPass}
+          disabled={!isSecondPassReady}
+          className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 rounded font-medium disabled:opacity-50 transition-colors"
+          title="Run Second Pass on Non-Pipe components"
+        >
+          🚀 Run Second Pass
+        </button>
 
         <span className="text-slate-400 font-mono text-xs">{verString}</span>
       </div>

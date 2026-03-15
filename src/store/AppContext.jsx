@@ -1,19 +1,10 @@
 import React, { createContext, useReducer, useContext } from 'react';
 
 const initialState = {
-  dataTable: [], // Will now serve as stage 1 data table source of truth to avoid breaking legacy code where possible
-  stage2Data: [], // Geometry focus data table
-  stage3Data: [], // Final check data table
+  dataTable: [],
   config: {
     decimals: 4,
     angleFormat: "degrees",
-    enabledChecks: JSON.parse(localStorage.getItem('enabledValidationChecks')) || {
-        V1: true, V2: true, V3: true, V4: true, V5: true,
-        V6: true, V7: true, V8: true, V9: true, V10: true,
-        V11: true, V12: true, V13: true, V14: true, V15: true,
-        V16: true, V17: true, V18: true, V19: true, V20: true,
-        V21: true, V22: true, V23: true, V24: true
-    },
     pteMode: {
       autoMultiPassMode: true,
       sequentialMode: true,
@@ -27,7 +18,7 @@ const initialState = {
     smartFixer: {
       connectionTolerance: 25.0,
       gridSnapResolution: 1.0,
-      microPipeThreshold: 0.0,
+      microPipeThreshold: 6.0,
       microFittingThreshold: 1.0,
       negligibleGap: 1.0,
       autoFillMaxGap: 25.0,
@@ -35,21 +26,13 @@ const initialState = {
       autoTrimMaxOverlap: 25.0,
       silentSnapThreshold: 2.0,
       warnSnapThreshold: 10.0,
-      enablePass3A: true,
-      minApprovalScore: 10,
-      weights: {
-        lineKey: 10,
-        sizeRatio: 5,
-        elementalAxis: 3,
-        globalAxis: 2
-      },
       autoDeleteFoldbackMax: 25.0,
       offAxisThreshold: 0.5,
       diagonalMinorThreshold: 2.0,
       fittingDimensionTolerance: 0.20,
       bendRadiusTolerance: 0.05,
       minTangentMultiplier: 1.0,
-      closureWarningThreshold: 0.0,
+      closureWarningThreshold: 5.0,
       closureErrorThreshold: 50.0,
       maxBoreForInchDetection: 48,
       oletMaxRatioWarning: 0.5,
@@ -66,7 +49,6 @@ const initialState = {
     tee_C_dimension: {},
   },
   log: [],
-  history: [],
   smartFix: {
     status: "idle",
     pass: 1,
@@ -82,20 +64,13 @@ const initialState = {
 function reducer(state, action) {
   switch (action.type) {
     case "SET_DATA_TABLE":
-      // We assume SET_DATA_TABLE maps to stage 1 (Syntax base) on import
-      return { ...state, dataTable: action.payload, history: [] }; // Reset history on new file
-    case "SET_STAGE_2_DATA":
-      return { ...state, stage2Data: action.payload, history: [] };
-    case "SET_STAGE_3_DATA":
-      return { ...state, stage3Data: action.payload };
+      return { ...state, dataTable: action.payload };
     case "SET_CONFIG":
       return { ...state, config: { ...state.config, ...action.payload } };
     case "ADD_LOG":
       return { ...state, log: [...state.log, action.payload] };
     case "CLEAR_LOG":
       return { ...state, log: [] };
-    case "SET_STATUS_MESSAGE":
-      return { ...state, statusMessage: action.payload };
     case "SET_SMART_FIX_STATUS":
       return { ...state, smartFix: { ...state.smartFix, status: action.status } };
     case "SMART_FIX_COMPLETE":
@@ -113,7 +88,6 @@ function reducer(state, action) {
     case "FIXES_APPLIED":
       return {
         ...state,
-        history: [...state.history, structuredClone(state.dataTable)],
         dataTable: action.payload.updatedTable,
         smartFix: {
           ...state.smartFix,
@@ -125,19 +99,6 @@ function reducer(state, action) {
             totalApplied: action.payload.applied.length,
           },
         },
-      };
-    case "UNDO_FIXES":
-      if (state.history.length === 0) return state;
-      const prevTable = state.history[state.history.length - 1];
-      const newHistory = state.history.slice(0, -1);
-      return {
-        ...state,
-        dataTable: prevTable,
-        history: newHistory,
-        smartFix: {
-          ...state.smartFix,
-          status: "idle", // reset status or mark as 'previewing' depending on desired UX
-        }
       };
     default:
       return state;

@@ -7,12 +7,6 @@ export function ConfigTab() {
 
   const handleSave = () => {
     dispatch({ type: "SET_CONFIG", payload: localConfig });
-
-    // Explicitly persist enabled validation checks
-    if (localConfig.enabledChecks) {
-        localStorage.setItem('enabledValidationChecks', JSON.stringify(localConfig.enabledChecks));
-    }
-
     // Push a log for transparency
     dispatch({ type: "ADD_LOG", payload: { type: "Info", message: "Configuration updated successfully." }});
   };
@@ -30,90 +24,13 @@ export function ConfigTab() {
   return (
     <div className="p-6 h-[calc(100vh-12rem)] overflow-auto bg-white rounded shadow-sm border border-slate-200">
       <div className="flex justify-between items-center mb-6 border-b pb-4">
-        <h2 className="text-xl font-bold text-slate-800">Engine Configuration</h2>
+        <h2 className="text-xl font-bold text-slate-800">Smart Fixer Configuration</h2>
         <button
           onClick={handleSave}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-sm transition"
         >
           Save Configuration
         </button>
-      </div>
-
-      {/* V1-V20 Checks List */}
-      <div className="bg-white p-4 rounded border border-slate-200 shadow-sm mb-6">
-        <h3 className="font-semibold text-slate-700 mb-3 border-b pb-2">Validation Rules Checklist (V1-V24)</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
-            {[
-              { id: 'V1', desc: 'No (0,0,0) coordinates' },
-              { id: 'V2', desc: 'Decimal consistency' },
-              { id: 'V3', desc: 'Bore consistency' },
-              { id: 'V4', desc: 'BEND CP != EP1' },
-              { id: 'V5', desc: 'BEND CP != EP2' },
-              { id: 'V6', desc: 'BEND CP not collinear' },
-              { id: 'V7', desc: 'BEND equidistant legs' },
-              { id: 'V8', desc: 'TEE CP at midpoint' },
-              { id: 'V9', desc: 'TEE CP bore matches' },
-              { id: 'V10', desc: 'TEE Branch perpendicular' },
-              { id: 'V11', desc: 'OLET has no end-points' },
-              { id: 'V12', desc: 'SUPPORT has no CAs' },
-              { id: 'V13', desc: 'SUPPORT bore is 0' },
-              { id: 'V14', desc: 'Missing <SKEY>' },
-              { id: 'V15', desc: 'Coordinate continuity' },
-              { id: 'V16', desc: 'CA8 usage scope' },
-              { id: 'V17', desc: 'Reserved' },
-              { id: 'V18', desc: 'Bore unit (MM/Inch check)' },
-              { id: 'V19', desc: 'SUPPORT MSG-SQ tokens' },
-              { id: 'V20', desc: 'SUPPORT GUID Prefix (UCI:)' },
-              { id: 'V21', desc: 'TEE BP Definition/Distance' },
-              { id: 'V22', desc: 'BEND minimum radius' },
-              { id: 'V23', desc: 'OLET CP/BP definition' },
-              { id: 'V24', desc: 'BEND valid angle calculation' }
-            ].map(({ id, desc }) => {
-                const checked = localConfig.enabledChecks ? localConfig.enabledChecks[id] !== false : true;
-                return (
-                    <div key={id} className="flex items-start space-x-2 py-1">
-                        <input
-                            type="checkbox"
-                            id={`chk-${id}`}
-                            className="w-4 h-4 mt-0.5 text-blue-600 rounded border-gray-300"
-                            checked={checked}
-                            onChange={(e) => {
-                                const newChecks = { ...(localConfig.enabledChecks || {}) };
-                                newChecks[id] = e.target.checked;
-                                setLocalConfig(prev => ({ ...prev, enabledChecks: newChecks }));
-                            }}
-                        />
-                        <label htmlFor={`chk-${id}`} className="text-sm text-slate-700 cursor-pointer leading-tight">
-                            <span className="font-semibold w-8 inline-block">{id}:</span> {desc}
-                        </label>
-                    </div>
-                );
-            })}
-        </div>
-
-        {/* R-Rule Documentation */}
-        <div className="mt-4 pt-4 border-t border-slate-200">
-             <h3 className="font-semibold text-slate-700 mb-3">Topological Rules (R-XX) Execution Pipeline</h3>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-                 <div className="bg-blue-50 p-3 rounded border border-blue-200">
-                     <h4 className="font-bold text-blue-800 mb-2 border-b border-blue-200 pb-1">Phase 1 (Pipe Trimming & Filling)</h4>
-                     <ul className="list-disc pl-5 text-blue-900 space-y-1">
-                         <li><span className="font-semibold">R1:</span> Pipe Segment Micro-Gap Deletion</li>
-                         <li><span className="font-semibold">R2:</span> Pipe Segment Micro-Overlap Trimming</li>
-                         <li><span className="font-semibold">V15:</span> Coordinate Continuity Enforcement</li>
-                     </ul>
-                 </div>
-                 <div className="bg-purple-50 p-3 rounded border border-purple-200">
-                     <h4 className="font-bold text-purple-800 mb-2 border-b border-purple-200 pb-1">Phase 2 (Topology & Fixes)</h4>
-                     <ul className="list-disc pl-5 text-purple-900 space-y-1">
-                         <li><span className="font-semibold">R3:</span> Fitting Off-Axis Snapping</li>
-                         <li><span className="font-semibold">R4:</span> Orphaned Component Translation</li>
-                         <li><span className="font-semibold">R5:</span> Flow Direction Reversal (BEND/FLANGE)</li>
-                         <li><span className="font-semibold">R6:</span> Global Axis Topology Search</li>
-                     </ul>
-                 </div>
-             </div>
-        </div>
       </div>
 
       <div className="bg-blue-50 p-4 rounded border border-blue-200 shadow-sm mb-6">
@@ -129,7 +46,7 @@ export function ConfigTab() {
             </div>
             <div className="flex items-center space-x-3">
               <input type="checkbox" checked={localConfig.pteMode?.lineKeyMode ?? true} onChange={(e) => setLocalConfig(p => ({...p, pteMode: {...p.pteMode, lineKeyMode: e.target.checked}}))} className="w-4 h-4 text-blue-600 rounded border-gray-300" />
-              <label className="text-sm font-medium text-slate-700">Line_Key Constraints (if avialable) ON</label>
+              <label className="text-sm font-medium text-slate-700">Line_Key Constraints ON</label>
             </div>
         </div>
         <div className="mt-4 pt-4 border-t border-blue-100 flex items-center space-x-4">
@@ -170,18 +87,10 @@ export function ConfigTab() {
 
         {/* Core Geometry Thresholds */}
         <div className="bg-slate-50 p-4 rounded border border-slate-200 shadow-sm">
-          <h3 className="font-semibold text-slate-700 mb-3">Geometry & Heuristics Thresholds</h3>
+          <h3 className="font-semibold text-slate-700 mb-3">Geometry Thresholds (mm)</h3>
           <div className="space-y-3">
-            <div className="flex justify-between items-center bg-blue-50/50 p-2 rounded">
-              <label className="text-sm text-blue-800 font-medium">Enable Pass 3A (Complex Synthesis)</label>
-              <input type="checkbox" checked={localConfig.smartFixer.enablePass3A !== false} onChange={(e) => updateSmartFixer('enablePass3A', e.target.checked)} className="w-5 h-5 text-blue-600 bg-white border-slate-300 rounded" />
-            </div>
-            <div className="flex justify-between items-center bg-blue-50/50 p-2 rounded">
-              <label className="text-sm text-blue-800 font-medium">Min Topology Approval Score</label>
-              <input type="number" step="1" value={localConfig.smartFixer.minApprovalScore ?? 10} onChange={(e) => updateSmartFixer('minApprovalScore', parseFloat(e.target.value))} className="w-24 p-1 border rounded text-right text-sm font-mono" title="Threshold for proposing fixes. Drops below this score."/>
-            </div>
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Micro-Pipe Deletion Threshold (mm)</label>
+              <label className="text-sm text-slate-600">Micro-Pipe Deletion</label>
               <input type="number" step="0.1" value={localConfig.smartFixer.microPipeThreshold} onChange={(e) => updateSmartFixer('microPipeThreshold', e.target.value)} className="w-24 p-1 border rounded text-right text-sm font-mono" />
             </div>
             <div className="flex justify-between items-center">
@@ -223,11 +132,11 @@ export function ConfigTab() {
           <h3 className="font-semibold text-slate-700 mb-3">Topological Rules</h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Topological Route Closure Alert (mm)</label>
+              <label className="text-sm text-slate-600">Route Closure Warning (mm)</label>
               <input type="number" step="0.1" value={localConfig.smartFixer.closureWarningThreshold} onChange={(e) => updateSmartFixer('closureWarningThreshold', e.target.value)} className="w-24 p-1 border rounded text-right text-sm font-mono" />
             </div>
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Topological Route Closure Max Gap (mm)</label>
+              <label className="text-sm text-slate-600">Route Closure Error (mm)</label>
               <input type="number" step="0.1" value={localConfig.smartFixer.closureErrorThreshold} onChange={(e) => updateSmartFixer('closureErrorThreshold', e.target.value)} className="w-24 p-1 border rounded text-right text-sm font-mono" />
             </div>
             <div className="flex justify-between items-center">

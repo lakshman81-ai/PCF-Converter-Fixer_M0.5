@@ -1,11 +1,14 @@
 import { vec } from '../math/VectorMath.js';
 import { getExitPoint } from './GraphBuilder.js';
 
-export function populateFixingActions(dataTable, chains, log) {
+export function populateFixingActions(dataTable, chains, log, config) {
+  const currentPass = config?.currentPass || 1;
+
   for (const row of dataTable) {
     row.fixingAction = null;
     row.fixingActionTier = null;
     row.fixingActionRuleId = null;
+    row._proposedPass = null;
   }
 
   for (const chain of chains) {
@@ -18,6 +21,7 @@ export function populateFixingActions(dataTable, chains, log) {
           row.fixingAction = formatProposedFix(elem._proposedFix, elem);
           row.fixingActionTier = elem._proposedFix.tier;
           row.fixingActionRuleId = elem._proposedFix.ruleId;
+          row._proposedPass = currentPass;
         }
       }
 
@@ -29,19 +33,18 @@ export function populateFixingActions(dataTable, chains, log) {
           currRow.fixingAction = link.fixAction.description;
           currRow.fixingActionTier = link.fixAction.tier;
           currRow.fixingActionRuleId = link.fixAction.ruleId;
+          currRow._proposedPass = currentPass;
         }
         if (nextRow && !nextRow.fixingAction && link.fixAction.tier <= 3) {
-          nextRow.fixingAction = `Passive Element: Automatically corrected by modifying Row ${currRow._rowIndex}.`;
+          nextRow.fixingAction = `← ${link.fixAction.description.split('\n')[0]}`;
           nextRow.fixingActionTier = link.fixAction.tier;
           nextRow.fixingActionRuleId = link.fixAction.ruleId;
-          // Marking this helps the UI hide "Approve/Reject" if needed,
-          // or at least informs the user they don't have to approve this twice.
-          nextRow._isPassiveFix = true;
+          nextRow._proposedPass = currentPass;
         }
       }
 
       if (link.branchChain) {
-        populateFixingActionsFromChain(dataTable, link.branchChain); // Recurse
+        populateFixingActionsFromChain(dataTable, link.branchChain, config); // Recurse
       }
     }
   }
@@ -53,14 +56,15 @@ export function populateFixingActions(dataTable, chains, log) {
         row.fixingAction = entry.message;
         row.fixingActionTier = entry.tier;
         row.fixingActionRuleId = entry.ruleId;
+        row._proposedPass = currentPass;
       }
     }
   }
 }
 
-function populateFixingActionsFromChain(dataTable, chain) {
+function populateFixingActionsFromChain(dataTable, chain, config) {
   // Simple wrapper to recurse into branches if needed
-  populateFixingActions(dataTable, [chain], []);
+  populateFixingActions(dataTable, [chain], [], config);
 }
 
 export function formatProposedFix(fix, element) {
