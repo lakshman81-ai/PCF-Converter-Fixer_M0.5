@@ -217,8 +217,11 @@ export function DataTableTab({ stage = "1" }) {
           if (isZero(newRow.bp)) { newRow.bp = null; zeroFixed++; actionsTaken.push("BP (0,0,0)"); }
           
           if (actionsTaken.length > 0) {
-               if (r.fixingAction) {
+               if (r.fixingAction && !r.fixingAction.includes('[Cleared]')) {
                    newRow.fixingAction = `${r.fixingAction} — [Cleared] ${actionsTaken.join(', ')}`;
+                   newRow.fixingActionTier = 1;
+               } else if (!r.fixingAction) {
+                   newRow.fixingAction = `[Cleared] ${actionsTaken.join(', ')}`;
                    newRow.fixingActionTier = 1;
                }
           }
@@ -402,12 +405,24 @@ export function DataTableTab({ stage = "1" }) {
     let validationMsg = row.fixingActionOriginalError || "";
     let actionMsg = row.fixingAction;
 
-    if (!row.fixingActionOriginalError && (row.fixingAction.includes('ERROR') || row.fixingAction.includes('WARNING') || row.fixingAction.includes('Syntax Check'))) {
+    // Check for our explicit multiline format: [Pass X] [Issue] ... \n[Proposal] ...
+    const hasExplicitTags = actionMsg.includes('[Issue]') && actionMsg.includes('[Proposal]');
+
+    if (hasExplicitTags) {
+        const parts = actionMsg.split('\n[Proposal]');
+        validationMsg = parts[0].replace(/^\[Pass\s*\w+\]\s*/i, '').replace('[Issue]', '').trim();
+        actionMsg = parts[1] ? parts[1].trim() : "";
+    } else if (!row.fixingActionOriginalError && (row.fixingAction.includes('ERROR') || row.fixingAction.includes('WARNING') || row.fixingAction.includes('Syntax Check'))) {
          // It's primarily a validation message or it hasn't been split yet
          if (row.fixingAction.includes('—')) {
              const parts = row.fixingAction.split('—');
              validationMsg = parts[0].trim();
              actionMsg = parts.slice(1).join('—').trim();
+
+             // Check if actionMsg duplicates validationMsg (e.g. Cleared message)
+             if (validationMsg.includes(actionMsg) || actionMsg.includes(validationMsg)) {
+                 actionMsg = ""; // Prevent duplication
+             }
          } else {
              validationMsg = row.fixingAction;
              actionMsg = "";
@@ -419,14 +434,16 @@ export function DataTableTab({ stage = "1" }) {
         actionMsg = actionMsg.replace(/\(Score:\s*[\d.]+\)/g, '').trim();
         // Catch inline 'Score 8' format that was persisting
         actionMsg = actionMsg.replace(/score\s*[\d.]+\s*/gi, '').trim();
-        actionMsg = actionMsg.replace(/^\[Pass\s*\w+\]\s*/i, '').trim();
-        const splitIdx = actionMsg.indexOf(':');
-        if (splitIdx > -1 && splitIdx < 30) {
-            actionMsg = actionMsg.substring(splitIdx + 1).trim();
+        if (!hasExplicitTags) {
+            actionMsg = actionMsg.replace(/^\[Pass\s*\w+\]\s*/i, '').trim();
+            const splitIdx = actionMsg.indexOf(':');
+            if (splitIdx > -1 && splitIdx < 30) {
+                actionMsg = actionMsg.substring(splitIdx + 1).trim();
+            }
         }
     }
 
-    const passPrefix = row._passApplied === 2 ? "[2nd Pass]" : "[1st Pass]";
+    const passPrefix = (row._passApplied === 2 || (row.fixingAction && row.fixingAction.includes('[Pass 2]'))) ? "[2nd Pass]" : "[1st Pass]";
 
     return (
       <div className={`${colors.bg} ${colors.text} border-l-4 ${colors.border} p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap rounded-r shadow-sm min-w-[280px]`}>
@@ -449,7 +466,7 @@ export function DataTableTab({ stage = "1" }) {
                  )}
             </div>
         )}
-        {stage !== "1" && row._passApplied === undefined && row._fixApproved === undefined && !row._isPassiveFix && (
+        {stage !== "1" && row._passApplied === undefined && row._fixApproved === undefined && !row._isPassiveFix && actionMsg && (
              <div className="flex space-x-2 mt-2 items-center flex-wrap gap-y-1">
                 <button onClick={() => handleApprove(row._rowIndex, true)} className={`px-2 py-1 text-xs rounded shadow-sm transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300`}>✓ Approve</button>
                 <button onClick={() => handleApprove(row._rowIndex, false)} className={`px-2 py-1 text-xs rounded shadow-sm transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300`}>✗ Reject</button>

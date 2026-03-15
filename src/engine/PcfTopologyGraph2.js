@@ -82,30 +82,30 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
 
                 if (score < minApprovalScore) {
                     tier = 4; // Drop / Error out
-                    description = `[Pass 1] Coordinate discontinuity by ${dist.toFixed(1)}mm.`;
+                    description = `[Pass 1] ERROR: Coordinate discontinuity by ${dist.toFixed(1)}mm. Score ${score} < ${minApprovalScore}`;
                     // Do not assign fixType, so no proposal is generated, but the error remains in logs.
                 } else {
                     // BM1 overlaps trimming logic
                     if (A.type === 'PIPE' && B.type === 'PIPE' && dist > 50 && ptA.x > ptB.x) {
                         fixType = 'TRIM_OVERLAP';
-                        description = `[Pass 1] TRIM_OVERLAP: Trim overlapping PIPE by ${dist.toFixed(1)}mm. (Score: ${score})`;
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Trim overlapping PIPE by ${dist.toFixed(1)}mm. (Score: ${score})`;
                         tier = 2;
                     }
                     // BM2 Multi-axis gap translation
                     else if (dist > 25 && isImmutable(B.type)) {
                         fixType = 'GAP_SNAP_IMMUTABLE_BLOCK';
-                        description = `[Pass 1] GAP_SNAP_IMMUTABLE_BLOCK: Translate rigid object block to Flange face by ${dist.toFixed(1)}mm. (Score: ${score})`;
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Translate rigid object block to Flange face by ${dist.toFixed(1)}mm. (Score: ${score})`;
                         tier = 3;
                     }
                     else if (A.type === 'PIPE' && B.type === 'PIPE' && dist < 25) {
                         fixType = 'GAP_STRETCH_PIPE';
-                        description = `[Pass 1] GAP_STRETCH_PIPE: Stretch adjacent pipes by ${dist.toFixed(1)}mm. (Score: ${score})`;
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Stretch adjacent pipes by ${dist.toFixed(1)}mm. (Score: ${score})`;
                     } else if (dist < 25 && (isImmutable(A.type) || isImmutable(B.type))) {
                         fixType = 'GAP_SNAP_IMMUTABLE';
-                        description = `[Pass 1] GAP_SNAP_IMMUTABLE: Translate immutable object by ${dist.toFixed(1)}mm. (Score: ${score})`;
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Translate immutable object by ${dist.toFixed(1)}mm. (Score: ${score})`;
                     } else {
                         fixType = 'GAP_FILL';
-                        description = `[Pass 1] GAP_FILL: Inject PIPE bridging gap of ${dist.toFixed(1)}mm. (Score: ${score})`;
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Inject PIPE bridging gap of ${dist.toFixed(1)}mm. (Score: ${score})`;
                         tier = 3;
                     }
                 }
@@ -161,7 +161,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                      if (others < 5) {
                          let score = weights.globalAxis + (A.bore && B.bore && (A.bore/B.bore >= 0.5 && A.bore/B.bore <= 2.0) ? weights.sizeRatio : 0);
                          if (score >= minApprovalScore) {
-                             const description = `[Pass 2] GAP_FILL: Non-sequential gap detected. Inject PIPE bridging ${minDist.toFixed(1)}mm. (Score: ${score})`;
+                             const description = `[Pass 2] [Issue] Non-sequential gap of ${minDist.toFixed(1)}mm detected.\n[Proposal] Inject PIPE bridging ${minDist.toFixed(1)}mm. (Score: ${score})`;
                              proposals.push({
                                 elementA: A, elementB: B, fixType: 'GAP_FILL', dist: minDist, score, vector: vec.sub(minPair.b, minPair.a), description, pass: "Pass 2"
                              });
@@ -199,26 +199,34 @@ export function applyApprovedMutations(dataTable, proposals, logger, config) {
 
         if (prop.fixType === 'TRIM_OVERLAP') {
             if (B.type === 'PIPE' && B.ep1) {
+                const oldEp1 = { ...B.ep1 };
                 B.ep1 = { ...getExitPoint(A) }; // Trim B to start where A ends
                 B.fixingAction = null;
+                logger.push({ stage: "FIXING", type: "Applied", row: B._rowIndex, message: `TRIM_OVERLAP: Mutated Row ${B._rowIndex} EP1 from (${oldEp1.x}, ${oldEp1.y}, ${oldEp1.z}) to (${B.ep1.x}, ${B.ep1.y}, ${B.ep1.z})` });
             }
         } else if (prop.fixType === 'GAP_STRETCH_PIPE') {
             if (B.type === 'PIPE' && B.ep1) {
+                const oldEp1 = { ...B.ep1 };
                 B.ep1 = { ...getExitPoint(A) }; // Stretch B backwards to meet A (BM1 standard)
                 B.fixingAction = null;
+                logger.push({ stage: "FIXING", type: "Applied", row: B._rowIndex, message: `GAP_STRETCH_PIPE: Mutated Row ${B._rowIndex} EP1 from (${oldEp1.x}, ${oldEp1.y}, ${oldEp1.z}) to (${B.ep1.x}, ${B.ep1.y}, ${B.ep1.z})` });
             } else if (A.type === 'PIPE' && A.ep2) {
+                const oldEp2 = { ...A.ep2 };
                 A.ep2 = { ...getEntryPoint(B) }; // Stretch A to meet B
                 A.fixingAction = null;
+                logger.push({ stage: "FIXING", type: "Applied", row: A._rowIndex, message: `GAP_STRETCH_PIPE: Mutated Row ${A._rowIndex} EP2 from (${oldEp2.x}, ${oldEp2.y}, ${oldEp2.z}) to (${A.ep2.x}, ${A.ep2.y}, ${A.ep2.z})` });
             }
         } else if (prop.fixType === 'GAP_SNAP_IMMUTABLE' || prop.fixType === 'GAP_SNAP_IMMUTABLE_BLOCK') {
             if (['FLANGE','BEND','TEE','VALVE'].includes(B.type)) {
                 // Translate B backwards to meet A
                 const trans = vec.sub(getExitPoint(A), getEntryPoint(B));
+                const oldEp1 = B.ep1 ? { ...B.ep1 } : null;
                 if (B.ep1) B.ep1 = vec.add(B.ep1, trans);
                 if (B.ep2) B.ep2 = vec.add(B.ep2, trans);
                 if (B.cp) B.cp = vec.add(B.cp, trans);
                 if (B.bp) B.bp = vec.add(B.bp, trans);
                 B.fixingAction = null;
+                logger.push({ stage: "FIXING", type: "Applied", row: B._rowIndex, message: `GAP_SNAP: Translated Row ${B._rowIndex} by vector (${trans.x.toFixed(1)}, ${trans.y.toFixed(1)}, ${trans.z.toFixed(1)}). Old EP1: ${oldEp1 ? `(${oldEp1.x}, ${oldEp1.y}, ${oldEp1.z})` : 'N/A'}` });
             }
         } else if (prop.fixType === 'GAP_FILL') {
             // Inject pipe
@@ -233,6 +241,7 @@ export function applyApprovedMutations(dataTable, proposals, logger, config) {
                 fixingAction: null,
             };
             newPipes.push({ afterRow: A._rowIndex, pipe: filler });
+            logger.push({ stage: "FIXING", type: "Applied", row: A._rowIndex, message: `GAP_FILL: Injected new PIPE after Row ${A._rowIndex} to bridge gap to Row ${B._rowIndex}.` });
         }
     }
 
