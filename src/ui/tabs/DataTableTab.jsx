@@ -432,7 +432,7 @@ export function DataTableTab({ stage = "1" }) {
                  )}
                  <span className={row._fixApproved === false ? "line-through opacity-70" : ""}>{actionMsg}</span>
                  {row._passApplied === undefined && row._fixApproved === true && !row._isPassiveFix && (
-                    <div className="text-[9px] text-blue-600 mt-1 italic">(Click 'Apply Fixes ✓' in footer to mutate geometry)</div>
+                    <div className="text-[10px] text-green-600 font-bold mt-1">✓ Approved</div>
                  )}
             </div>
         )}

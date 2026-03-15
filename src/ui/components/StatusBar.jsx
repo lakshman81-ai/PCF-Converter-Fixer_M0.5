@@ -39,11 +39,23 @@ export function StatusBar({ activeTab, activeStage }) {
         setZustandProposals(proposals);
         let errorFixes = 0;
         let warnFixes = 0;
+        const updatedTable = [...state.stage2Data];
         logger.getLog().forEach(entry => {
              dispatch({ type: "ADD_LOG", payload: entry });
              if (entry.tier && entry.tier <= 2) errorFixes++;
              if (entry.tier && entry.tier === 3) warnFixes++;
+             if (entry.row && entry.tier) {
+                 const row = updatedTable.find(r => r._rowIndex === entry.row);
+                 if (row) {
+                     row.fixingAction = entry.message;
+                     row.fixingActionTier = entry.tier;
+                     row.fixingActionRuleId = entry.ruleId;
+                     if (entry.score !== undefined) row.fixingActionScore = entry.score;
+                 }
+             }
         });
+        dispatch({ type: "SET_STAGE_2_DATA", payload: updatedTable });
+        setZustandData(updatedTable);
         dispatch({ type: "SMART_FIX_COMPLETE", payload: { pass: 1, summary: {} } });
         dispatch({ type: "SET_STATUS_MESSAGE", payload: `Analysis Complete (Group 2): Generated ${proposals.length} proposals.` });
     } else {
@@ -97,7 +109,18 @@ export function StatusBar({ activeTab, activeStage }) {
     if (runGroup === 'group2') {
         const { proposals } = PcfTopologyGraph2(pass2Table, state.config, logger);
         setZustandProposals(proposals);
-        logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
+        logger.getLog().forEach(entry => {
+             dispatch({ type: "ADD_LOG", payload: entry });
+             if (entry.row && entry.tier) {
+                 const row = pass2Table.find(r => r._rowIndex === entry.row);
+                 if (row) {
+                     row.fixingAction = entry.message;
+                     row.fixingActionTier = entry.tier;
+                     row.fixingActionRuleId = entry.ruleId;
+                     if (entry.score !== undefined) row.fixingActionScore = entry.score;
+                 }
+             }
+        });
         dispatch({ type: "SET_STAGE_2_DATA", payload: pass2Table });
         setZustandData(pass2Table);
         dispatch({ type: "SMART_FIX_COMPLETE", payload: { pass: 2, summary: {} } });

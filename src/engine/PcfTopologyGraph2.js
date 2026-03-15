@@ -128,11 +128,54 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
     }
 
     // Pass 2: Global Fuzzy Search (Major Axis) up to 6000mm
-    // (For this mock, we identify open endpoints remaining)
-    logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)" });
+    if ((config.currentPass || 1) >= 2) {
+        logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)" });
+        for (let i = 0; i < physicals.length; i++) {
+            for (let j = i + 1; j < physicals.length; j++) {
+                if (Math.abs(j - i) === 1) continue; // Skip immediate sequential (handled in Pass 1)
+                const A = physicals[i];
+                const B = physicals[j];
+
+                const ptA1 = getEntryPoint(A), ptA2 = getExitPoint(A);
+                const ptB1 = getEntryPoint(B), ptB2 = getExitPoint(B);
+
+                const pairs = [
+                    {a: ptA1, b: ptB1}, {a: ptA1, b: ptB2}, 
+                    {a: ptA2, b: ptB1}, {a: ptA2, b: ptB2}
+                ].filter(p => p.a && p.b);
+
+                let minPair = null, minDist = Infinity;
+                for (const pair of pairs) {
+                    const d = vec.dist(pair.a, pair.b);
+                    if (d > 0 && d < minDist) { minDist = d; minPair = pair; }
+                }
+
+                if (minDist > 0 && minDist < 6000) {
+                     const dx = Math.abs(minPair.a.x - minPair.b.x);
+                     const dy = Math.abs(minPair.a.y - minPair.b.y);
+                     const dz = Math.abs(minPair.a.z - minPair.b.z);
+                     const maxDev = Math.max(dx, dy, dz);
+                     const others = dx + dy + dz - maxDev;
+
+                     if (others < 5) {
+                         let score = weights.globalAxis + (A.bore && B.bore && (A.bore/B.bore >= 0.5 && A.bore/B.bore <= 2.0) ? weights.sizeRatio : 0);
+                         if (score >= minApprovalScore) {
+                             const description = `[Pass 2] GAP_FILL: Non-sequential gap detected. Inject PIPE bridging ${minDist.toFixed(1)}mm. (Score: ${score})`;
+                             proposals.push({
+                                elementA: A, elementB: B, fixType: 'GAP_FILL', dist: minDist, score, vector: vec.sub(minPair.b, minPair.a), description, pass: "Pass 2"
+                             });
+                             logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: A._rowIndex, message: description, score });
+                         }
+                     }
+                }
+            }
+        }
+    } else {
+        logger.push({ stage: "FIXING", type: "Info", message: "Skipping Pass 2: Awaiting User to Trigger 'Run Second Pass'" });
+    }
 
     // Pass 3: Global Fuzzy Search up to 15000mm
-    logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 3: Global Fuzzy Search (No Axis Sense)" });
+    // logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 3: Global Fuzzy Search (No Axis Sense)" });
 
     return { proposals };
 }
