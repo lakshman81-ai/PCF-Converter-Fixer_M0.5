@@ -109,8 +109,8 @@ export function StatusBar({ activeTab, activeStage }) {
   // We can track if the smartFixPass > 0 (meaning a pass was run) and disable the main Smart Fix button.
   const hasRunSmartFix = (state.smartFix.smartFixPass || 0) > 0;
 
-  // Second Pass ready once Smart Fix (Pass 1) has been run, regardless of Apply Fixes.
-  const isSecondPassReady = hasRunSmartFix && !isRunning && !isApplying;
+  // Second Pass ready once Phase 1 Validator is done, no need to wait for Smart Fix 1 or Apply Fixes.
+  const isSecondPassReady = isValidationDone && !isRunning && !isApplying;
 
   const canRunSmartFix = isDataLoaded && !isRunning && isValidationDone && !hasRunSmartFix;
 
@@ -397,7 +397,7 @@ export function StatusBar({ activeTab, activeStage }) {
                   onClick={handleSecondPass}
                   disabled={!isSecondPassReady}
                   className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 rounded font-medium disabled:opacity-50 transition-colors h-full"
-                  title={!isSecondPassReady ? "Apply Fixes (Pass 1) first to unlock Second Pass" : "Run Second Pass for non-Pipe components"}
+                  title={!isSecondPassReady ? "Run Phase 1 Validator first" : "Run Second Pass for non-Pipe components"}
                 >
                   🚀 Run Second Pass
                 </button>

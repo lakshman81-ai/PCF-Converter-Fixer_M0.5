@@ -260,11 +260,81 @@ const SingleIssuePanel = ({ proposals, validationIssues, currentIssueIndex, setC
     const handlePrev = () => setCurrentIssueIndex(Math.max(0, currentIssueIndex - 1));
     const handleNext = () => setCurrentIssueIndex(Math.min(allIssues.length - 1, currentIssueIndex + 1));
 
+    // Draggable state using simple absolute positioning
+    const [pos, setPos] = useState({ x: 0, y: 0 }); // Note: We handle setting this dynamically
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    const panelRef = useRef(null);
+
+    // Initialize position to bottom center once
+    useEffect(() => {
+        if (panelRef.current && pos.x === 0 && pos.y === 0) {
+             const parent = panelRef.current.parentElement;
+             if (parent) {
+                 const pRect = parent.getBoundingClientRect();
+                 const cRect = panelRef.current.getBoundingClientRect();
+                 setPos({
+                     x: (pRect.width / 2) - (cRect.width / 2),
+                     y: pRect.height - cRect.height - 32 // 32px from bottom (bottom-8)
+                 });
+             }
+        }
+    }, [pos.x, pos.y]);
+
+    const handlePointerDown = (e) => {
+        setIsDragging(true);
+        const rect = panelRef.current.getBoundingClientRect();
+        // Calculate offset from the top-left of the panel
+        setDragOffset({
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        });
+        e.target.setPointerCapture(e.pointerId);
+    };
+
+    const handlePointerMove = (e) => {
+        if (!isDragging || !panelRef.current) return;
+        const parent = panelRef.current.parentElement;
+        if (!parent) return;
+
+        const pRect = parent.getBoundingClientRect();
+
+        // Calculate new X, Y relative to the parent container
+        let newX = e.clientX - pRect.left - dragOffset.x;
+        let newY = e.clientY - pRect.top - dragOffset.y;
+
+        // Optional bounding box
+        newX = Math.max(0, Math.min(newX, pRect.width - panelRef.current.offsetWidth));
+        newY = Math.max(0, Math.min(newY, pRect.height - panelRef.current.offsetHeight));
+
+        setPos({ x: newX, y: newY });
+    };
+
+    const handlePointerUp = (e) => {
+        setIsDragging(false);
+        e.target.releasePointerCapture(e.pointerId);
+    };
+
+    // If pos is still 0,0, apply a CSS class for centering, otherwise use absolute top/left
+    const style = (pos.x !== 0 || pos.y !== 0)
+        ? { left: pos.x, top: pos.y }
+        : { bottom: '2rem', left: '50%', transform: 'translateX(-50%)' };
+
     return (
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20 w-96 bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2 bg-slate-800/80 border-b border-slate-700">
-                <div className="flex items-center gap-2">
+        <div
+            ref={panelRef}
+            style={style}
+            className="absolute z-20 w-96 bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden"
+        >
+            {/* Header / Drag Handle */}
+            <div
+                className="flex items-center justify-between px-4 py-2 bg-slate-800/80 border-b border-slate-700 cursor-move"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+            >
+                <div className="flex items-center gap-2 pointer-events-none">
                     <span className="text-slate-300 font-bold text-sm">Issue {safeIndex + 1} of {allIssues.length}</span>
                 </div>
                 <div className="flex gap-1">

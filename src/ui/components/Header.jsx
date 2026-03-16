@@ -1,10 +1,13 @@
 import React, { useRef } from 'react';
 import { useAppContext } from '../../store/AppContext';
 import { parsePCF } from '../../utils/ImportExport';
+import { useStore } from '../../store/useStore';
 
 export function Header() {
   const { state, dispatch } = useAppContext();
   const pcfInputRef = useRef(null);
+  const setZustandData = useStore(state => state.setDataTable);
+  const setZustandProposals = useStore(state => state.setProposals);
 
   const handlePcfClick = () => { if (pcfInputRef.current) pcfInputRef.current.click(); };
 
@@ -12,6 +15,11 @@ export function Header() {
     const file = e.target.files[0];
     if (!file) return;
     try {
+      // Clear out all previous app state completely before loading
+      dispatch({ type: "RESET_ALL" });
+      setZustandData([]);
+      setZustandProposals([]);
+
       const parsedData = await parsePCF(file, state.config);
       dispatch({ type: "SET_DATA_TABLE", payload: parsedData });
       dispatch({ type: "ADD_LOG", payload: { type: "Info", message: `Successfully imported ${parsedData.length} rows from ${file.name}` }});

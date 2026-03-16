@@ -39,124 +39,127 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
 
     logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 1: Sequential Topological Tracing" });
 
-    // First Sub-pass: Calculate Missing (0,0,0) EP lengths
-    for (let i = 0; i < physicals.length; i++) {
-        const C = physicals[i];
-        if (C.ep1 && vec.isZero(C.ep1)) {
-            const prev = physicals[i-1];
-            if (prev && getExitPoint(prev)) {
-                // If it's a pipe, try to trace forward
-                const start = getExitPoint(prev);
-                let fixDesc = `[Pass 1] [Issue] EP1 is (0,0,0).\n[Proposal] Calculated EP1 from Row ${prev._rowIndex} exit point.`;
-                proposals.push({
-                   elementA: C, elementB: prev, fixType: 'ZERO_COORD_CALC', dist: 0, score: 20, description: fixDesc, pass: "Pass 1",
-                   target: 'ep1', newPt: { ...start }
-                });
-                logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: C._rowIndex, message: fixDesc, score: 20 });
+    // Only run Pass 1 checks if currentPass is explicitly 1 (or undefined/first run)
+    if ((config.currentPass || 1) === 1) {
+        // First Sub-pass: Calculate Missing (0,0,0) EP lengths
+        for (let i = 0; i < physicals.length; i++) {
+            const C = physicals[i];
+            if (C.ep1 && vec.isZero(C.ep1)) {
+                const prev = physicals[i-1];
+                if (prev && getExitPoint(prev)) {
+                    // If it's a pipe, try to trace forward
+                    const start = getExitPoint(prev);
+                    let fixDesc = `[Pass 1] [Issue] EP1 is (0,0,0).\n[Proposal] Calculated EP1 from Row ${prev._rowIndex} exit point.`;
+                    proposals.push({
+                       elementA: C, elementB: prev, fixType: 'ZERO_COORD_CALC', dist: 0, score: 20, description: fixDesc, pass: "Pass 1",
+                       target: 'ep1', newPt: { ...start }
+                    });
+                    logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: C._rowIndex, message: fixDesc, score: 20 });
+                }
+            }
+            if (C.ep2 && vec.isZero(C.ep2)) {
+                const next = physicals[i+1];
+                if (next && getEntryPoint(next)) {
+                    const end = getEntryPoint(next);
+                    let fixDesc = `[Pass 1] [Issue] EP2 is (0,0,0).\n[Proposal] Calculated EP2 from Row ${next._rowIndex} entry point.`;
+                    proposals.push({
+                       elementA: C, elementB: next, fixType: 'ZERO_COORD_CALC', dist: 0, score: 20, description: fixDesc, pass: "Pass 1",
+                       target: 'ep2', newPt: { ...end }
+                    });
+                    logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: C._rowIndex, message: fixDesc, score: 20 });
+                }
             }
         }
-        if (C.ep2 && vec.isZero(C.ep2)) {
-            const next = physicals[i+1];
-            if (next && getEntryPoint(next)) {
-                const end = getEntryPoint(next);
-                let fixDesc = `[Pass 1] [Issue] EP2 is (0,0,0).\n[Proposal] Calculated EP2 from Row ${next._rowIndex} entry point.`;
-                proposals.push({
-                   elementA: C, elementB: next, fixType: 'ZERO_COORD_CALC', dist: 0, score: 20, description: fixDesc, pass: "Pass 1",
-                   target: 'ep2', newPt: { ...end }
-                });
-                logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: C._rowIndex, message: fixDesc, score: 20 });
+
+        for (let i = 0; i < physicals.length - 1; i++) {
+            const A = physicals[i];
+            const B = physicals[i+1];
+
+            let score = 0;
+
+            // Line_Key matching
+            if (config.pteMode?.lineKeyMode && A._lineKey && B._lineKey && A._lineKey === B._lineKey) {
+                score += weights.lineKey;
+            } else if (!config.pteMode?.lineKeyMode) {
+                 // If not using line key mode, assume sequential implies connection intent
+                 score += weights.lineKey;
             }
-        }
-    }
 
-    for (let i = 0; i < physicals.length - 1; i++) {
-        const A = physicals[i];
-        const B = physicals[i+1];
+            // Bore ratio constraint
+            if (A.bore && B.bore) {
+                const ratio = A.bore / B.bore;
+                if (ratio >= 0.5 && ratio <= 2.0) score += weights.sizeRatio;
+            }
 
-        let score = 0;
+            const ptA = getExitPoint(A) || getEntryPoint(A);
+            const ptB = getEntryPoint(B) || getExitPoint(B);
 
-        // Line_Key matching
-        if (config.pteMode?.lineKeyMode && A._lineKey && B._lineKey && A._lineKey === B._lineKey) {
-            score += weights.lineKey;
-        } else if (!config.pteMode?.lineKeyMode) {
-             // If not using line key mode, assume sequential implies connection intent
-             score += weights.lineKey;
-        }
+            // Simple axis check for scoring
+            if (ptA && ptB) {
+                const dx = Math.abs(ptA.x - ptB.x);
+                const dy = Math.abs(ptA.y - ptB.y);
+                const dz = Math.abs(ptA.z - ptB.z);
+                // If it primarily deviates on one axis
+                const maxDev = Math.max(dx, dy, dz);
+                const others = dx + dy + dz - maxDev;
+                if (others < 5) score += weights.elementalAxis;
+            }
 
-        // Bore ratio constraint
-        if (A.bore && B.bore) {
-            const ratio = A.bore / B.bore;
-            if (ratio >= 0.5 && ratio <= 2.0) score += weights.sizeRatio;
-        }
+            if (ptA && ptB) {
+                const dist = vec.dist(ptA, ptB);
 
-        const ptA = getExitPoint(A) || getEntryPoint(A);
-        const ptB = getEntryPoint(B) || getExitPoint(B);
+                if (dist > 0) {
+                    let fixType = 'GAP_FILL';
+                    let description = "";
+                    let tier = 2; // Auto-approved
 
-        // Simple axis check for scoring
-        if (ptA && ptB) {
-            const dx = Math.abs(ptA.x - ptB.x);
-            const dy = Math.abs(ptA.y - ptB.y);
-            const dz = Math.abs(ptA.z - ptB.z);
-            // If it primarily deviates on one axis
-            const maxDev = Math.max(dx, dy, dz);
-            const others = dx + dy + dz - maxDev;
-            if (others < 5) score += weights.elementalAxis;
-        }
+                    // BM1 overlaps trimming logic
+                    if (A.type === 'PIPE' && B.type === 'PIPE' && dist > 50 && ptA.x > ptB.x) {
+                        fixType = 'TRIM_OVERLAP';
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Trim overlapping PIPE by ${dist.toFixed(1)}mm.`;
+                        tier = 2;
+                    }
+                    // BM2 Multi-axis gap translation
+                    else if (dist > 25 && isImmutable(B.type)) {
+                        fixType = 'GAP_SNAP_IMMUTABLE_BLOCK';
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Translate rigid object block to Flange face by ${dist.toFixed(1)}mm.`;
+                        tier = 3;
+                    }
+                    else if (A.type === 'PIPE' && B.type === 'PIPE' && dist < 25) {
+                        fixType = 'GAP_STRETCH_PIPE';
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Stretch adjacent pipes by ${dist.toFixed(1)}mm.`;
+                    } else if (dist < 25 && (isImmutable(A.type) || isImmutable(B.type))) {
+                        fixType = 'GAP_SNAP_IMMUTABLE';
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Translate immutable object by ${dist.toFixed(1)}mm.`;
+                    } else {
+                        fixType = 'GAP_FILL';
+                        description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Inject PIPE bridging gap of ${dist.toFixed(1)}mm.`;
+                        tier = 3;
+                    }
 
-        if (ptA && ptB) {
-            const dist = vec.dist(ptA, ptB);
+                    if (score < minApprovalScore) {
+                        tier = 4; // Drop / Error out, but still push proposal so user can see it
+                    }
 
-            if (dist > 0) {
-                let fixType = 'GAP_FILL';
-                let description = "";
-                let tier = 2; // Auto-approved
+                    proposals.push({
+                        elementA: A,
+                        elementB: B,
+                        fixType,
+                        dist,
+                        score,
+                        vector: vec.sub(ptB, ptA),
+                        description,
+                        pass: "Pass 1",
+                        ptA,
+                        ptB
+                    });
 
-                // BM1 overlaps trimming logic
-                if (A.type === 'PIPE' && B.type === 'PIPE' && dist > 50 && ptA.x > ptB.x) {
-                    fixType = 'TRIM_OVERLAP';
-                    description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Trim overlapping PIPE by ${dist.toFixed(1)}mm.`;
-                    tier = 2;
+                    // Track Pass 1 issues to avoid processing them in Pass 2
+                    A._IssueListed = true;
+                    B._IssueListed = true;
+
+                    logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
                 }
-                // BM2 Multi-axis gap translation
-                else if (dist > 25 && isImmutable(B.type)) {
-                    fixType = 'GAP_SNAP_IMMUTABLE_BLOCK';
-                    description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Translate rigid object block to Flange face by ${dist.toFixed(1)}mm.`;
-                    tier = 3;
-                }
-                else if (A.type === 'PIPE' && B.type === 'PIPE' && dist < 25) {
-                    fixType = 'GAP_STRETCH_PIPE';
-                    description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Stretch adjacent pipes by ${dist.toFixed(1)}mm.`;
-                } else if (dist < 25 && (isImmutable(A.type) || isImmutable(B.type))) {
-                    fixType = 'GAP_SNAP_IMMUTABLE';
-                    description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Translate immutable object by ${dist.toFixed(1)}mm.`;
-                } else {
-                    fixType = 'GAP_FILL';
-                    description = `[Pass 1] [Issue] Coordinate discontinuity by ${dist.toFixed(1)}mm.\n[Proposal] Inject PIPE bridging gap of ${dist.toFixed(1)}mm.`;
-                    tier = 3;
-                }
-
-                if (score < minApprovalScore) {
-                    tier = 4; // Drop / Error out, but still push proposal so user can see it
-                }
-
-                proposals.push({
-                    elementA: A,
-                    elementB: B,
-                    fixType,
-                    dist,
-                    score,
-                    vector: vec.sub(ptB, ptA),
-                    description,
-                    pass: "Pass 1",
-                    ptA,
-                    ptB
-                });
-
-                // Track Pass 1 issues to avoid processing them in Pass 2
-                A._IssueListed = true;
-                B._IssueListed = true;
-
-                logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
             }
         }
     }
