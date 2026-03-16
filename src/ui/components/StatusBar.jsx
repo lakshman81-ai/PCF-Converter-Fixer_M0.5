@@ -126,30 +126,42 @@ export function StatusBar({ activeTab, activeStage }) {
     // So we clear _fixApproved globally, and clear fixingAction so Pass 1 items don't clutter the UI during Pass 2 evaluation.
     const pass2Table = state.stage2Data.map(r => {
         const cleanRow = { ...r, _currentPass: 2 };
-        delete cleanRow.fixingAction;
-        delete cleanRow.fixingActionTier;
-        delete cleanRow.fixingActionScore;
-        delete cleanRow.fixingActionRuleId;
+
+        // Remove old Pass 1 proposals that were not applied
+        if (!cleanRow._passApplied) {
+            delete cleanRow.fixingAction;
+            delete cleanRow.fixingActionTier;
+            delete cleanRow.fixingActionScore;
+            delete cleanRow.fixingActionRuleId;
+        }
+
         delete cleanRow._fixApproved;
         return cleanRow;
     });
     
+    // We only pass the current Pass 2 config so the engine explicitly runs Pass 2
     if (runGroup === 'group2') {
         const { proposals } = PcfTopologyGraph2(pass2Table, { ...state.config, currentPass: 2 }, logger);
-        setZustandProposals(proposals);
+
+        // Keep previously applied changes in Zustland, override with new
+        // Wait, Pass 2 might still return some Pass 1 proposals if we aren't careful,
+        // but PcfTopologyGraph2 will output both Pass 1 and Pass 2 proposals when currentPass=2.
+        // Let's filter proposals down to only the un-applied ones so we don't duplicate.
+        const activeProposals = proposals.filter(p => !p.elementA._passApplied && !p.elementB._passApplied);
+        setZustandProposals(activeProposals);
 
         let hasPass2Proposals = false;
 
-        // Attach Pass 2 proposals to rows so they render correctly in the DataTable
-        proposals.forEach(prop => {
+        // Attach new proposals to rows so they render correctly in the DataTable
+        activeProposals.forEach(prop => {
             if (prop.pass === 'Pass 2') {
                 hasPass2Proposals = true;
-                const row = pass2Table.find(r => r._rowIndex === prop.elementA._rowIndex);
-                if (row) {
-                    row.fixingAction = prop.description;
-                    row.fixingActionTier = prop.dist < 25 ? 2 : 3;
-                    if (prop.score !== undefined) row.fixingActionScore = prop.score;
-                }
+            }
+            const row = pass2Table.find(r => r._rowIndex === prop.elementA._rowIndex);
+            if (row && !row._passApplied) {
+                row.fixingAction = prop.description;
+                row.fixingActionTier = prop.dist < 25 ? 2 : 3;
+                if (prop.score !== undefined) row.fixingActionScore = prop.score;
             }
         });
 
@@ -157,7 +169,8 @@ export function StatusBar({ activeTab, activeStage }) {
              dispatch({ type: "ADD_LOG", payload: entry });
              if (entry.row && entry.tier && entry.row !== "-") {
                  const row = pass2Table.find(r => r._rowIndex === entry.row);
-                 if (row && (!row.fixingActionTier || entry.tier < row.fixingActionTier)) {
+                 // Only overwrite if it's not a previously applied pass
+                 if (row && !row._passApplied && (!row.fixingActionTier || entry.tier < row.fixingActionTier)) {
                      row.fixingAction = entry.message;
                      row.fixingActionTier = entry.tier;
                      row.fixingActionRuleId = entry.ruleId;
@@ -168,12 +181,14 @@ export function StatusBar({ activeTab, activeStage }) {
 
         if (!hasPass2Proposals) {
              dispatch({ type: "ADD_LOG", payload: { stage: "FIXING", type: "Info", message: "Pass 2 did not yield any new proposals for existing gaps.", row: "-" } });
+             dispatch({ type: "SET_STATUS_MESSAGE", payload: "Pass 2 Analysis Complete: No new issues found." });
+        } else {
+             dispatch({ type: "SET_STATUS_MESSAGE", payload: `Pass 2 Analysis Complete: Generated ${activeProposals.filter(p=>p.pass==='Pass 2').length} proposals.` });
         }
 
         dispatch({ type: "SET_STAGE_2_DATA", payload: pass2Table });
         setZustandData(pass2Table);
         dispatch({ type: "SMART_FIX_COMPLETE", payload: { pass: 2, summary: {} } });
-        dispatch({ type: "SET_STATUS_MESSAGE", payload: "Group 2 Pass Complete: Review proposals and Apply Fixes." });
     } else {
         const result = runSmartFix(pass2Table, { ...state.config, currentPass: 2 }, logger);
         logger.getLog().forEach(entry => dispatch({ type: "ADD_LOG", payload: entry }));
