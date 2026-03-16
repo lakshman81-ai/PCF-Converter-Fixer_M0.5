@@ -196,6 +196,9 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
         }
 
         const openEndpoints = [];
+        // Pull configured minGap (fallback 6mm)
+        const minGap = config.smartFixer?.minGap ?? 6;
+
         for (const p1 of allPoints) {
             // Skip points belonging to components that already have a pending/approved Pass 1 issue.
             if (p1.comp._IssueListed) continue;
@@ -213,9 +216,9 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                     isClosed = true;
                     break;
                 }
-                // If it doesn't have a Pass 1 issue, but has a local neighbor (< 50mm),
+                // If it doesn't have a Pass 1 issue, but has a local neighbor (< minGap),
                 // it shouldn't trigger a massive global 6000mm fuzzy search pipe fill.
-                if (distance < 50) {
+                if (distance < minGap) {
                     hasNeighbor = true;
                 }
             }
