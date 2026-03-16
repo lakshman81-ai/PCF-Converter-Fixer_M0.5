@@ -128,7 +128,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
 
     // Pass 2: Global Fuzzy Search (Major Axis) up to 6000mm
     if ((config.currentPass || 1) >= 2) {
-        logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)", rowIndex: "-" });
+        logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)", row: "-" });
 
         // 1. Pre-calculate strictly "open" endpoints across the entire physical dataset.
         // An endpoint is "closed" if it is <= 1mm from ANY other component's endpoint or branch point.

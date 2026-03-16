@@ -436,7 +436,6 @@ export function CanvasTab() {
 
   const handleApprove = (e, prop) => {
       e.stopPropagation();
-      useStore.getState().approveProposal(prop.id);
 
       const updatedTable = [...appState.stage2Data];
       const row = updatedTable.find(r => r._rowIndex === prop.elementA._rowIndex);
@@ -449,7 +448,6 @@ export function CanvasTab() {
 
   const handleReject = (e, prop) => {
       e.stopPropagation();
-      useStore.getState().rejectProposal(prop.id);
 
       const updatedTable = [...appState.stage2Data];
       const row = updatedTable.find(r => r._rowIndex === prop.elementA._rowIndex);
