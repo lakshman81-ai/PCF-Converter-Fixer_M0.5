@@ -187,7 +187,7 @@ const ProposalOverlay = ({ proposal }) => {
     let color = '#f59e0b'; // amber
     if (proposal.action === 'GAP_STRETCH_PIPE' || proposal.action === 'GAP_SNAP_IMMUTABLE_BLOCK') color = '#3b82f6'; // blue
     if (proposal.action === 'GAP_FILL') color = '#10b981'; // green
-    if (proposal.action.includes('TRIM')) color = '#ef4444'; // red
+    if (typeof proposal.action === 'string' && proposal.action.includes('TRIM')) color = '#ef4444'; // red
 
     return (
         <group>
@@ -427,7 +427,7 @@ export function CanvasTab() {
   const [currentIssueIndex, setCurrentIssueIndex] = useState(0);
 
   const validationIssues = (appState.stage2Data || []).filter(r =>
-      r.fixingAction && (r.fixingAction.includes('ERROR') || r.fixingAction.includes('WARNING'))
+      typeof r.fixingAction === 'string' && (r.fixingAction.includes('ERROR') || r.fixingAction.includes('WARNING'))
   );
 
   const handleAutoCenter = () => {
