@@ -152,6 +152,10 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                     ptB
                 });
 
+                // Track Pass 1 issues to avoid processing them in Pass 2
+                A._IssueListed = true;
+                B._IssueListed = true;
+
                 logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
             }
         }
@@ -162,6 +166,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
         logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 2: Global Fuzzy Search (Major Axis Sense)", row: "-" });
 
         // 1. Pre-calculate strictly "open" endpoints across the entire physical dataset.
+        // Skip any components that already have an issue listed from Pass 1.
         // An endpoint is "closed" if it is <= 1mm from ANY other component's endpoint or branch point.
         const allPoints = [];
         for (const comp of physicals) {
@@ -172,18 +177,27 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
 
         const openEndpoints = [];
         for (const p1 of allPoints) {
+            // Skip points belonging to components that already have a pending/approved Pass 1 issue.
+            if (p1.comp._IssueListed) continue;
+
             // We only care to bridge ep1/ep2 for Pass 2 (usually), but we check against all (including bp) for closure
             if (p1.type === 'bp') continue;
 
             let isClosed = false;
+            let hasNeighbor = false;
+
             for (const p2 of allPoints) {
                 if (p1.comp._rowIndex === p2.comp._rowIndex) continue;
-                if (vec.dist(p1.pt, p2.pt) <= 1.0) {
+                const distance = vec.dist(p1.pt, p2.pt);
+                if (distance <= 1.0) {
                     isClosed = true;
                     break;
                 }
+                if (distance < 50) {
+                    hasNeighbor = true; // Avoid false positives (like the 1980mm gap) if there's a nearby component likely intended to connect
+                }
             }
-            if (!isClosed) {
+            if (!isClosed && !hasNeighbor) {
                 openEndpoints.push(p1);
             }
         }

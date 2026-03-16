@@ -122,15 +122,15 @@ export function StatusBar({ activeTab, activeStage }) {
     dispatch({ type: "SET_SMART_FIX_STATUS", status: "running" });
     const logger = createLogger();
     // Clear out prior fixingAction warnings/proposals from Pass 1 to give a clean slate for Pass 2
+    // User requested: "when 'Run second pass' is clicked do not reset _Issuelisted but reset _fixApproved"
+    // So we clear _fixApproved globally, and clear fixingAction so Pass 1 items don't clutter the UI during Pass 2 evaluation.
     const pass2Table = state.stage2Data.map(r => {
         const cleanRow = { ...r, _currentPass: 2 };
-        if (cleanRow._fixApproved === undefined || cleanRow._fixApproved === false) {
-             // Only clear out unapproved/rejected fixingActions (don't clear applied fixes history if we want to keep them)
-             delete cleanRow.fixingAction;
-             delete cleanRow.fixingActionTier;
-             delete cleanRow.fixingActionScore;
-             delete cleanRow._fixApproved;
-        }
+        delete cleanRow.fixingAction;
+        delete cleanRow.fixingActionTier;
+        delete cleanRow.fixingActionScore;
+        delete cleanRow.fixingActionRuleId;
+        delete cleanRow._fixApproved;
         return cleanRow;
     });
     
