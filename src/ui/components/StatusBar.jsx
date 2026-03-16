@@ -138,9 +138,12 @@ export function StatusBar({ activeTab, activeStage }) {
         const { proposals } = PcfTopologyGraph2(pass2Table, { ...state.config, currentPass: 2 }, logger);
         setZustandProposals(proposals);
 
+        let hasPass2Proposals = false;
+
         // Attach Pass 2 proposals to rows so they render correctly in the DataTable
         proposals.forEach(prop => {
             if (prop.pass === 'Pass 2') {
+                hasPass2Proposals = true;
                 const row = pass2Table.find(r => r._rowIndex === prop.elementA._rowIndex);
                 if (row) {
                     row.fixingAction = prop.description;
@@ -152,9 +155,9 @@ export function StatusBar({ activeTab, activeStage }) {
 
         logger.getLog().forEach(entry => {
              dispatch({ type: "ADD_LOG", payload: entry });
-             if (entry.row && entry.tier) {
+             if (entry.row && entry.tier && entry.row !== "-") {
                  const row = pass2Table.find(r => r._rowIndex === entry.row);
-                 if (row && !row.fixingAction) {
+                 if (row && (!row.fixingActionTier || entry.tier < row.fixingActionTier)) {
                      row.fixingAction = entry.message;
                      row.fixingActionTier = entry.tier;
                      row.fixingActionRuleId = entry.ruleId;
@@ -162,6 +165,10 @@ export function StatusBar({ activeTab, activeStage }) {
                  }
              }
         });
+
+        if (!hasPass2Proposals) {
+             dispatch({ type: "ADD_LOG", payload: { stage: "FIXING", type: "Info", message: "Pass 2 did not yield any new proposals for existing gaps.", row: "-" } });
+        }
 
         dispatch({ type: "SET_STAGE_2_DATA", payload: pass2Table });
         setZustandData(pass2Table);

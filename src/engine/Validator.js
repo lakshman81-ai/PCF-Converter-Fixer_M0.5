@@ -125,9 +125,13 @@ export function runValidationChecklist(dataTable, config, logger, stage = "1") {
     if (stage !== "1") continue;
 
     // V1: No (0,0,0) coords
+    // If a point is exactly (0,0,0), it usually means it was not exported properly.
+    // We should log a warning/error, and then the Fixer can calculate it based on previous row and length.
     const checkV1 = (pt, name) => {
       if (pt && vec.isZero(pt)) {
-        logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V1", tier: 4, row: ri, message: `ERROR [V1]: ${name} coordinate is exactly (0,0,0).` });
+        row.fixingAction = `[V1] ${name} is (0,0,0). Will attempt to calculate via Prev/Next EP and component length.`;
+        row.fixingActionTier = 3;
+        logger.push({ stage: "VALIDATION", type: "Error", ruleId: "V1", tier: 4, row: ri, message: `ERROR [V1]: ${name} coordinate is exactly (0,0,0). Needs calculation.` });
         errorCount++;
       }
     };

@@ -38,6 +38,37 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
     const minApprovalScore = config.smartFixer?.minApprovalScore || 10;
 
     logger.push({ stage: "FIXING", type: "Info", message: "Executing Pass 1: Sequential Topological Tracing" });
+
+    // First Sub-pass: Calculate Missing (0,0,0) EP lengths
+    for (let i = 0; i < physicals.length; i++) {
+        const C = physicals[i];
+        if (C.ep1 && vec.isZero(C.ep1)) {
+            const prev = physicals[i-1];
+            if (prev && getExitPoint(prev)) {
+                // If it's a pipe, try to trace forward
+                const start = getExitPoint(prev);
+                let fixDesc = `[Pass 1] [Issue] EP1 is (0,0,0).\n[Proposal] Calculated EP1 from Row ${prev._rowIndex} exit point.`;
+                proposals.push({
+                   elementA: C, elementB: prev, fixType: 'ZERO_COORD_CALC', dist: 0, score: 20, description: fixDesc, pass: "Pass 1",
+                   target: 'ep1', newPt: { ...start }
+                });
+                logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: C._rowIndex, message: fixDesc, score: 20 });
+            }
+        }
+        if (C.ep2 && vec.isZero(C.ep2)) {
+            const next = physicals[i+1];
+            if (next && getEntryPoint(next)) {
+                const end = getEntryPoint(next);
+                let fixDesc = `[Pass 1] [Issue] EP2 is (0,0,0).\n[Proposal] Calculated EP2 from Row ${next._rowIndex} entry point.`;
+                proposals.push({
+                   elementA: C, elementB: next, fixType: 'ZERO_COORD_CALC', dist: 0, score: 20, description: fixDesc, pass: "Pass 1",
+                   target: 'ep2', newPt: { ...end }
+                });
+                logger.push({ stage: "FIXING", type: "Fix", tier: 3, row: C._rowIndex, message: fixDesc, score: 20 });
+            }
+        }
+    }
+
     for (let i = 0; i < physicals.length - 1; i++) {
         const A = physicals[i];
         const B = physicals[i+1];
@@ -220,7 +251,8 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
 }
 
 export function applyApprovedMutations(dataTable, proposals, logger, config) {
-    let updatedTable = [...dataTable];
+    // We must deep clone the table rows because otherwise we mutate the references which affects the UI before apply.
+    let updatedTable = dataTable.map(r => ({ ...r, ep1: r.ep1 ? {...r.ep1} : null, ep2: r.ep2 ? {...r.ep2} : null, bp: r.bp ? {...r.bp} : null, cp: r.cp ? {...r.cp} : null }));
     const newPipes = [];
 
     for (const prop of proposals) {
@@ -266,6 +298,18 @@ export function applyApprovedMutations(dataTable, proposals, logger, config) {
                 B.fixingAction = null;
                 logger.push({ stage: "FIXING", type: "Applied", row: B._rowIndex, message: `GAP_SNAP: Translated Row ${B._rowIndex} by vector (${trans.x.toFixed(1)}, ${trans.y.toFixed(1)}, ${trans.z.toFixed(1)}). Old EP1: ${oldEp1 ? `(${oldEp1.x}, ${oldEp1.y}, ${oldEp1.z})` : 'N/A'}` });
             }
+        } else if (prop.fixType === 'ZERO_COORD_CALC') {
+             if (prop.target === 'ep1') {
+                 const oldEp1 = { ...A.ep1 };
+                 A.ep1 = { ...prop.newPt };
+                 A.fixingAction = null;
+                 logger.push({ stage: "FIXING", type: "Applied", row: A._rowIndex, message: `ZERO_COORD_CALC: Calculated Row ${A._rowIndex} EP1 from (${oldEp1.x}, ${oldEp1.y}, ${oldEp1.z}) to (${A.ep1.x}, ${A.ep1.y}, ${A.ep1.z})` });
+             } else if (prop.target === 'ep2') {
+                 const oldEp2 = { ...A.ep2 };
+                 A.ep2 = { ...prop.newPt };
+                 A.fixingAction = null;
+                 logger.push({ stage: "FIXING", type: "Applied", row: A._rowIndex, message: `ZERO_COORD_CALC: Calculated Row ${A._rowIndex} EP2 from (${oldEp2.x}, ${oldEp2.y}, ${oldEp2.z}) to (${A.ep2.x}, ${A.ep2.y}, ${A.ep2.z})` });
+             }
         } else if (prop.fixType === 'GAP_FILL') {
             // Inject pipe
             const filler = {
