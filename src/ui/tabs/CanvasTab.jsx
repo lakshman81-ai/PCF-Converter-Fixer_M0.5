@@ -184,37 +184,53 @@ const ProposalOverlay = ({ proposal }) => {
     const dist = vecA.distanceTo(vecB);
 
     // Color based on action
-    let color = '#f59e0b'; // amber
-    if (proposal.action === 'GAP_STRETCH_PIPE' || proposal.action === 'GAP_SNAP_IMMUTABLE_BLOCK') color = '#3b82f6'; // blue
-    if (proposal.action === 'GAP_FILL') color = '#10b981'; // green
-    if (typeof proposal.action === 'string' && proposal.action.includes('TRIM')) color = '#ef4444'; // red
+    const action = proposal.fixType || proposal.action || '';
+
+    // User requested: GAP_FILL (Pipe Fill) = Red translucent, TRIM (Pipe Trim) = Blue translucent
+    let color = '#f59e0b'; // amber default
+    if (action === 'GAP_FILL') color = '#ef4444'; // red
+    if (action.includes('TRIM')) color = '#3b82f6'; // blue
+    if (action === 'GAP_STRETCH_PIPE' || action === 'GAP_SNAP_IMMUTABLE_BLOCK') color = '#10b981'; // green
+
+    // Cylinder orientation
+    const dir = new THREE.Vector3().subVectors(vecB, vecA).normalize();
+    const up = new THREE.Vector3(0, 1, 0);
+    const quaternion = new THREE.Quaternion().setFromUnitVectors(up, dir);
+    const bore = proposal.elementA?.bore || proposal.elementB?.bore || 50;
 
     return (
         <group>
             <Line points={[vecA, vecB]} color={color} lineWidth={3} dashed dashScale={10} dashSize={10} gapSize={10} />
+
+            {/* Translucent Cylinder for Pipe Fill/Trim */}
+            <mesh position={mid} quaternion={quaternion}>
+                <cylinderGeometry args={[bore / 2, bore / 2, dist, 16]} />
+                <meshStandardMaterial color={color} opacity={0.5} transparent depthWrite={false} side={THREE.DoubleSide} />
+            </mesh>
+
             <mesh position={vecA}>
-                <sphereGeometry args={[10, 8, 8]} />
+                <sphereGeometry args={[bore / 2 + 2, 8, 8]} />
                 <meshBasicMaterial color={color} />
             </mesh>
             <mesh position={vecB}>
-                <sphereGeometry args={[10, 8, 8]} />
+                <sphereGeometry args={[bore / 2 + 2, 8, 8]} />
                 <meshBasicMaterial color={color} />
             </mesh>
 
             <mesh position={mid}>
-                <planeGeometry args={[200, 60]} />
+                <planeGeometry args={[300, 80]} />
                 <meshBasicMaterial color="#1e293b" side={THREE.DoubleSide} opacity={0.8} transparent />
             </mesh>
             <Text
                 position={[mid.x, mid.y, mid.z + 1]}
                 color={color}
-                fontSize={30}
+                fontSize={35}
                 anchorX="center"
                 anchorY="middle"
                 outlineWidth={1}
                 outlineColor="#0f172a"
             >
-                {proposal.action} ({dist.toFixed(1)}mm)
+                {action} ({dist.toFixed(1)}mm)
             </Text>
         </group>
     );
@@ -542,7 +558,7 @@ export function CanvasTab() {
                 ...proposals.map(p => ({ type: 'proposal', data: p }))
             ];
             const safeIndex = Math.max(0, Math.min(currentIssueIndex, allIssues.length - 1));
-            const isActive = allIssues[safeIndex]?.type === 'proposal' && allIssues[safeIndex]?.data.id === prop.id;
+            const isActive = allIssues[safeIndex]?.type === 'proposal' && allIssues[safeIndex]?.data === prop;
 
             return isActive ? <ProposalOverlay key={`prop-${idx}`} proposal={prop} /> : null;
         })}
