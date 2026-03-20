@@ -49,10 +49,15 @@ function validateAgainst3DRules(prop, config, logger) {
             const dy = Math.abs(ptB.y - ptA.y);
             const dz = Math.abs(ptB.z - ptA.z);
 
+            const maxD = Math.max(dx, dy, dz);
+            const slopeTol = rules.singleAxisSlopeTolerance ?? 0.01;
+
             let planes = 0;
-            if (dx > 1) planes++;
-            if (dy > 1) planes++;
-            if (dz > 1) planes++;
+            if (maxD > 0) {
+                if (dx > 1 && (dx / maxD) >= slopeTol) planes++;
+                if (dy > 1 && (dy / maxD) >= slopeTol) planes++;
+                if (dz > 1 && (dz / maxD) >= slopeTol) planes++;
+            }
 
             // Rule: Max Diagonal Gap (Failsafe for 2+ planes)
             if (planes >= 2 && prop.dist > (rules.maxDiagonalGap ?? 6000)) {

@@ -313,6 +313,13 @@ export function ConfigTab() {
               <input type="number" step="1" value={localConfig.smartFixer.maxDiagonalGap ?? 6000} onChange={(e) => updateSmartFixer('maxDiagonalGap', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
               <p className="text-xs text-slate-500 italic">Failsafe limit for bridging gaps strictly involving turning components.</p>
             </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">Single Axis Slope Tolerance</label>
+              </div>
+              <input type="number" step="0.001" value={localConfig.smartFixer.singleAxisSlopeTolerance ?? 0.01} onChange={(e) => updateSmartFixer('singleAxisSlopeTolerance', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Ratio (e.g. 0.01) to ignore mild slopes on horizontal runs.</p>
+            </div>
           </div>
         </div>
 
