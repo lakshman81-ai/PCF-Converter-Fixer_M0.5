@@ -4,6 +4,86 @@ import { rayShoot } from '../math/VectorMath.js';
 
 import { buildConnectivityGraph as spatialGraphBuilder } from './GraphBuilder.js';
 
+// ----------------------------------------------------
+// 3D Rule Validation Engine
+// ----------------------------------------------------
+function validateAgainst3DRules(prop, config, logger) {
+    if (!config || !config.smartFixer || config.smartFixer.enable3DRules === false) return true; // Fail open if no config or disabled
+
+    const rules = config.smartFixer;
+    const isSyntheticGap = prop.fixType === 'GAP_FILL' || prop.fixType === 'GAP_FILL_REDUCER';
+
+    // Rule: Min Component Size
+    if (isSyntheticGap) {
+        if (prop.dist < (rules.minComponentSize ?? 3)) {
+            logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: Synthesized component length ${prop.dist.toFixed(1)}mm < Min Component Size (${rules.minComponentSize ?? 3}mm)` });
+            return false;
+        }
+    }
+
+    // Rule: Min Pipe Size (for overlapping or merging logic)
+    if (prop.fixType === 'TRIM_OVERLAP' || prop.fixType === 'GAP_STRETCH_PIPE') {
+        const minBore = Math.min(prop.elementA?.bore || 9999, prop.elementB?.bore || 9999);
+        if (minBore < (rules.minPipeSize ?? 0)) {
+            logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: Bore size ${minBore}mm < Min Pipe Size (${rules.minPipeSize ?? 0}mm)` });
+            return false;
+        }
+    }
+
+    // Rule: Max Overlap
+    if (prop.fixType === 'TRIM_OVERLAP') {
+        if (prop.dist > (rules.maxOverlap ?? 1000)) {
+            logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: Overlap ${prop.dist.toFixed(1)}mm > Max Overlap (${rules.maxOverlap ?? 1000}mm)` });
+            return false;
+        }
+    }
+
+    // Gap Rules
+    if (isSyntheticGap && prop.elementA && prop.elementB) {
+        // Use attached points if available (important for TEE branch gaps), fallback to endpoints
+        const ptA = prop.ptA || getExitPoint(prop.elementA);
+        const ptB = prop.ptB || getEntryPoint(prop.elementB);
+
+        if (ptA && ptB) {
+            const dx = Math.abs(ptB.x - ptA.x);
+            const dy = Math.abs(ptB.y - ptA.y);
+            const dz = Math.abs(ptB.z - ptA.z);
+
+            let planes = 0;
+            if (dx > 1) planes++;
+            if (dy > 1) planes++;
+            if (dz > 1) planes++;
+
+            // Rule: Max Diagonal Gap (Failsafe for 2+ planes)
+            if (planes >= 2 && prop.dist > (rules.maxDiagonalGap ?? 6000)) {
+                logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: Diagonal gap ${prop.dist.toFixed(1)}mm > Max Diagonal Gap (${rules.maxDiagonalGap ?? 6000}mm)` });
+                return false;
+            }
+
+            // Rule: 3-Plane Skew Limit
+            if (planes === 3 && prop.dist > (rules.threePlaneSkewLimit ?? 2000)) {
+                logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: 3-Plane skew ${prop.dist.toFixed(1)}mm > Skew Limit (${rules.threePlaneSkewLimit ?? 2000}mm)` });
+                return false;
+            }
+
+            // Rule: 2-Plane Skew Limit
+            if (planes === 2 && prop.dist > (rules.twoPlaneSkewLimit ?? 3000)) {
+                logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: 2-Plane skew ${prop.dist.toFixed(1)}mm > Skew Limit (${rules.twoPlaneSkewLimit ?? 3000}mm)` });
+                return false;
+            }
+
+            // Rule: Max Single Plane Run
+            if (planes <= 1 && prop.dist > (rules.maxSinglePlaneRun ?? 12000)) {
+                logger.push({ stage: "FIXING", type: "Warn", message: `Dropped Proposal: Straight run ${prop.dist.toFixed(1)}mm > Max Single Plane Run (${rules.maxSinglePlaneRun ?? 12000}mm)` });
+                return false;
+            }
+        }
+    }
+
+    return true; // Passed all checks
+}
+
+
 export function PcfTopologyGraph2(dataTable, config, logger) {
     logger.push({ stage: "FIXING", type: "Info", message: "═══ RUNNING PcfTopologyGraph_2 ENGINE ═══" });
 
@@ -153,7 +233,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                         tier = 4; // Drop / Error out, but still push proposal so user can see it
                     }
 
-                    proposals.push({
+                    const prop = {
                         elementA: A,
                         elementB: B,
                         fixType,
@@ -164,13 +244,17 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                         pass: "Pass 1",
                         ptA,
                         ptB
-                    });
+                    };
 
-                    // Track Pass 1 issues to avoid processing them in Pass 2
-                    A._IssueListed = true;
-                    B._IssueListed = true;
+                    if (validateAgainst3DRules(prop, config, logger)) {
+                        proposals.push(prop);
 
-                    logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
+                        // Track Pass 1 issues to avoid processing them in Pass 2
+                        A._IssueListed = true;
+                        B._IssueListed = true;
+
+                        logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
+                    }
                 }
             }
         }
@@ -293,7 +377,7 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                     const desc = `[1st Pass]\n[Issue] Unresolved topological void of ${dist.toFixed(1)}mm detected via Ray Shooter.\n[Proposal] Inject ${injectReducer ? 'PIPE & REDUCER' : 'PIPE'} bridging ${dist.toFixed(1)}mm.`;
 
                     // Generate Proposal
-                    proposals.push({
+                    const prop = {
                         elementA: O,
                         elementB: C,
                         fixType,
@@ -303,13 +387,17 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                         pass: "Pass 1", // Group it as Pass 1 so it clears properly
                         ptA: EP,
                         ptB: targetEP
-                    });
+                    };
 
-                    // Immediately flag both components as resolved so they don't get shot again this run
-                    O._IssueListed = true;
-                    C._IssueListed = true;
+                    if (validateAgainst3DRules(prop, config, logger)) {
+                        proposals.push(prop);
 
-                    logger.push({ stage: "FIXING", type: "Fix", tier: injectReducer ? 3 : 2, row: O._rowIndex, message: desc, score: 95 });
+                        // Immediately flag both components as resolved so they don't get shot again this run
+                        O._IssueListed = true;
+                        C._IssueListed = true;
+
+                        logger.push({ stage: "FIXING", type: "Fix", tier: injectReducer ? 3 : 2, row: O._rowIndex, message: desc, score: 95 });
+                    }
 
                     // Break out of EP loop since we resolved this orphan
                     break;
@@ -438,12 +526,15 @@ export function PcfTopologyGraph2(dataTable, config, logger) {
                          const description = `[2nd Pass]\n[Issue] Non-sequential gap of ${dist.toFixed(1)}mm detected.\n[Proposal] Inject PIPE bridging ${dist.toFixed(1)}mm.`;
                          const tier = score < minApprovalScore ? 4 : 3;
 
-                         proposals.push({
+                         const prop = {
                             elementA: A, elementB: B, fixType: 'GAP_FILL', dist, score, vector: vec.sub(epB.pt, epA.pt), description, pass: "Pass 2",
                             ptA: epA.pt, ptB: epB.pt
-                         });
+                         };
 
-                         logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
+                         if (validateAgainst3DRules(prop, config, logger)) {
+                             proposals.push(prop);
+                             logger.push({ stage: "FIXING", type: tier === 4 ? "Error" : "Fix", tier, row: A._rowIndex, message: description, score });
+                         }
                      }
                 }
             }
@@ -528,6 +619,7 @@ export function applyApprovedMutations(dataTable, proposals, logger, config) {
                 ep1: { ...getExitPoint(A) },
                 ep2: { ...getEntryPoint(B) },
                 ca: { ...A.ca, 8: null },
+                refNo: A.refNo ? `${A.refNo}-GF` : 'SYN-GF',
                 fixingAction: null,
             };
             newPipes.push({ afterRow: A._rowIndex, pipe: filler });
@@ -545,6 +637,7 @@ export function applyApprovedMutations(dataTable, proposals, logger, config) {
                 ep1: { ...getExitPoint(A) },
                 ep2: { ...reducerPt }, // Pipe ends at reducer
                 ca: { ...A.ca, 8: null },
+                refNo: A.refNo ? `${A.refNo}-BR` : 'SYN-BR',
                 fixingAction: null,
             };
             newPipes.push({ afterRow: A._rowIndex, pipe: filler });

@@ -249,6 +249,73 @@ export function ConfigTab() {
           </div>
         </div>
 
+        {/* Common 3D Cleanup Rules */}
+        <div className="bg-slate-50 p-4 rounded border border-slate-200 shadow-sm md:col-span-2">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-slate-700 text-orange-500">Common 3D Cleanup Rules</h3>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={localConfig.smartFixer.enable3DRules !== false}
+                onChange={(e) => updateSmartFixer('enable3DRules', e.target.checked)}
+                className="w-4 h-4 text-orange-500 border-slate-300 rounded focus:ring-orange-500"
+              />
+              <span className="text-sm font-medium text-slate-700">Enable 3D Rules</span>
+            </label>
+          </div>
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${localConfig.smartFixer.enable3DRules === false ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">Max single plane Run (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.maxSinglePlaneRun ?? 12000} onChange={(e) => updateSmartFixer('maxSinglePlaneRun', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Maximum allowed continuous straight length without a break or support.</p>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">Max Overlap (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.maxOverlap ?? 1000} onChange={(e) => updateSmartFixer('maxOverlap', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Maximum allowed distance two components can physically intersect.</p>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">Min Pipe Size (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.minPipeSize ?? 0} onChange={(e) => updateSmartFixer('minPipeSize', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Minimum Nominal Bore. Skips advanced merging logic for tubing below this size.</p>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">Min Component Size (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.minComponentSize ?? 3} onChange={(e) => updateSmartFixer('minComponentSize', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Prevents synthesizing impossible, paper-thin structural components.</p>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">3-Plane Skew Limit (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.threePlaneSkewLimit ?? 2000} onChange={(e) => updateSmartFixer('threePlaneSkewLimit', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Limits length of synthesized gaps skewed across all three X, Y, and Z axes.</p>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">2-Plane Skew Limit (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.twoPlaneSkewLimit ?? 3000} onChange={(e) => updateSmartFixer('twoPlaneSkewLimit', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Limits length of synthesized gaps skewed across two axes.</p>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm font-medium text-slate-700">Max Diagonal Gap (mm)</label>
+              </div>
+              <input type="number" step="1" value={localConfig.smartFixer.maxDiagonalGap ?? 6000} onChange={(e) => updateSmartFixer('maxDiagonalGap', parseFloat(e.target.value))} className="w-full p-2 border border-slate-300 rounded text-sm mb-1 bg-white font-mono" />
+              <p className="text-xs text-slate-500 italic">Failsafe limit for bridging gaps strictly involving turning components.</p>
+            </div>
+          </div>
+        </div>
+
         {/* Gap & Overlap Logic */}
         <div className="bg-slate-50 p-4 rounded border border-slate-200 shadow-sm">
           <h3 className="font-semibold text-slate-700 mb-3">Gap & Overlap Limits (mm)</h3>
